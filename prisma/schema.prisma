@@ -90,12 +90,14 @@ model ShadowEntity {
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   attributeId  String
   attribute    Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
-  hp           Int       @default(10)
-  stealRate    Float     @default(0.2)
-  sealProgress Int       @default(0)
-  stepsNeeded  Int       @default(3)
-  manifestedAt DateTime  @default(now())
-  defeatedAt   DateTime?
+  hp                 Int       @default(10)
+  baselineWeeklyRate Float     @default(0)
+  stolenXpPool       Int       @default(0)
+  stealRate          Float     @default(0.2)
+  sealProgress       Int       @default(0)
+  stepsNeeded        Int       @default(3)
+  manifestedAt       DateTime  @default(now())
+  defeatedAt         DateTime?
 
   @@index([userId])
   @@index([attributeId])

@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // Entropy Engine — Core Game Logic (Deterministic, Server-Safe)
+// v4 — The Living Ledger Edition
 // ═══════════════════════════════════════════════════════════════
 
 // ── Leveling ────────────────────────────────────────────────────
@@ -29,19 +30,19 @@ export function levelProgress(xp: number, level: number): number {
 
 // ── XP Awards ───────────────────────────────────────────────────
 
-/** Base XP for completing a task (quick completion, no focus session). */
+/** Base XP for completing a task (standard session). */
 export const BASE_TASK_XP = 25;
 
 /** XP per minute of focus-session-verified work. */
 export const FOCUS_XP_PER_MINUTE = 2;
 
-/** Grit (currency) awarded for quick task completion. */
+/** Grit (currency) awarded for standard task completion. */
 export const BASE_TASK_GRIT = 5;
 
 /** Grit per minute of focus-session-verified work. */
 export const FOCUS_GRIT_PER_MINUTE = 1;
 
-/** XP boost multiplier when post-Shadow-defeat boost is active. */
+/** XP boost multiplier when post-Shadow-defeat boost is active (48h resolve). */
 export const POST_SHADOW_BOOST = 1.10;
 
 /**
@@ -72,21 +73,65 @@ export function computeRewards(opts: {
   return { xp, grit };
 }
 
-// ── Shadow Steal ────────────────────────────────────────────────
+// ── Shadow Steal & Memory (v4) ──────────────────────────────────
 
 /**
  * Apply Shadow's XP steal: returns actual XP the user receives
- * and the amount stolen. stolenXp is simply lost (not added to Shadow HP).
+ * and the amount stolen into the Shadow's corrupting pool.
  */
 export function applyShadowSteal(
   xpEarned: number,
-  stealRate: number
+  stealRate: number = 0.2
 ): { actualXp: number; stolenXp: number } {
   const stolenXp = Math.floor(xpEarned * stealRate);
   return {
     actualXp: xpEarned - stolenXp,
     stolenXp,
   };
+}
+
+/**
+ * Compute trailing 14-day completion baseline weekly rate.
+ */
+export function computeBaselineWeeklyRate(completionsCount14Days: number): number {
+  return parseFloat((completionsCount14Days / 2).toFixed(1));
+}
+
+/**
+ * Pattern-aware Shadow HP formula (v4 Part A #2):
+ * hp = 10 + Math.round(baselineWeeklyRate * daysNeglected * 2)
+ * A habit you previously practiced frequently spawns a much deeper stain.
+ */
+export function computeShadowHp(
+  baselineWeeklyRate: number,
+  daysNeglected: number
+): number {
+  const severityBonus = Math.round(baselineWeeklyRate * daysNeglected * 2);
+  return Math.max(10, 10 + severityBonus);
+}
+
+/**
+ * Reclaimed XP on Shadow defeat (v4 Part A #1):
+ * Restores 50% of the stolen pool plus a 20 XP triumphant bounty.
+ */
+export function computeReclaimedXp(stolenXpPool: number): number {
+  return Math.max(25, Math.floor(stolenXpPool * 0.5) + 20);
+}
+
+/**
+ * Human-legible origin story copy for the Shadow card.
+ */
+export function getShadowOriginStory(
+  baselineWeeklyRate: number,
+  daysNeglected: number
+): string {
+  if (baselineWeeklyRate >= 3) {
+    return `Remembers you used to show up ${baselineWeeklyRate}x a week. You fell far, so the stain runs deep.`;
+  }
+  if (baselineWeeklyRate > 0) {
+    return `Born from a ${baselineWeeklyRate}x/week rhythm abandoned for ${daysNeglected} days.`;
+  }
+  return `Spawned from ${daysNeglected} days of unattended stillness.`;
 }
 
 // ── Shadow Difficulty Scaling ───────────────────────────────────
@@ -104,11 +149,8 @@ export const DECAY_GRACE_HOURS = 48;
 /** Decay rate per overdue day (fraction of current XP). */
 export const DECAY_RATE = 0.05;
 
-/** Initial Shadow HP on manifestation. */
+/** Initial Shadow HP baseline. */
 export const SHADOW_INITIAL_HP = 10;
-
-/** Shadow HP growth per day of neglect. */
-export const SHADOW_HP_PER_DAY = 10;
 
 /**
  * Compute decay for an attribute.
@@ -157,13 +199,10 @@ export function computeStreak(
   const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
   if (diffDays === 0) {
-    // Already active today — no change
     return currentStreak;
   } else if (diffDays === 1) {
-    // Consecutive day — increment
     return currentStreak + 1;
   } else {
-    // Gap — reset
     return 1;
   }
 }
@@ -180,7 +219,7 @@ export const HEARTBEAT_TOLERANCE_SEC = 5;
 export const MIN_HEARTBEATS = 2; // At least ~60s of focus
 
 /**
- * Validate a focus session based on heartbeat count.
+ * Validate a server-timed session based on heartbeat count.
  * Returns computed duration and whether the session is validated.
  */
 export function validateFocusSession(heartbeatCount: number): {
@@ -195,10 +234,8 @@ export function validateFocusSession(heartbeatCount: number): {
 
 // ── Display Helpers ─────────────────────────────────────────────
 
-/** Attribute decay status for UI rendering. */
 export type DecayStatus = 'stable' | 'vulnerable' | 'decaying';
 
-/** Determine visual decay status of an attribute. */
 export function getDecayStatus(lastActivityAt: Date, now: Date = new Date()): DecayStatus {
   const hoursElapsed = (now.getTime() - lastActivityAt.getTime()) / (1000 * 60 * 60);
 
@@ -207,14 +244,12 @@ export function getDecayStatus(lastActivityAt: Date, now: Date = new Date()): De
   return 'decaying';
 }
 
-/** Human-readable level title based on level ranges. */
 export function getLevelTitle(level: number): string {
-  if (level <= 3) return 'Novice';
-  if (level <= 6) return 'Apprentice';
+  if (level <= 3) return 'Novice Inscription';
+  if (level <= 6) return 'Apprentice Scribe';
   if (level <= 10) return 'Journeyman';
-  if (level <= 15) return 'Adept';
-  if (level <= 20) return 'Expert';
-  if (level <= 30) return 'Master';
-  if (level <= 50) return 'Grandmaster';
-  return 'Ascendant';
+  if (level <= 15) return 'Adept Archivist';
+  if (level <= 20) return 'Master Chronicler';
+  if (level <= 30) return 'Grandmaster';
+  return 'Living Chronicle';
 }

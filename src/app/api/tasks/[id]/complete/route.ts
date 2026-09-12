@@ -6,9 +6,8 @@ import {
   applyShadowSteal,
   computeStreak,
   computeLevel,
-  MIN_HEARTBEATS,
-  HEARTBEAT_INTERVAL_SEC,
   validateFocusSession,
+  computeReclaimedXp,
 } from '@/lib/game-engine';
 
 export async function POST(
@@ -48,13 +47,12 @@ export async function POST(
       let focusVerified = false;
       let computedDurationSec: number | null = null;
 
-      // Validate focus session if provided
+      // Validate server-timed session if provided
       if (focusSessionId) {
         const session = await tx.focusSession.findUnique({
           where: { id: focusSessionId },
         });
         if (session && session.userId === user.id && !session.endedAt) {
-          // End the session
           const validation = validateFocusSession(session.heartbeatCount);
           focusVerified = validation.validated;
           computedDurationSec = validation.computedDurationSec;
@@ -68,26 +66,26 @@ export async function POST(
             },
           });
         } else if (session && session.endedAt) {
-          // Session already ended — use its stored validation
           focusVerified = session.validated;
           computedDurationSec = session.computedDurationSec;
         }
       }
 
-      // Check for XP boost
+      // Check for 48h resolve boost
       const hasXpBoost = !!(
         task.attribute.xpBoostUntil &&
         task.attribute.xpBoostUntil > now
       );
 
-      // Compute rewards
+      // Compute initial rewards
       const rewards = computeRewards({
         focusVerified,
         computedDurationSec,
         hasXpBoost,
       });
 
-      let xpGained = rewards.xp;
+      const earnedXp = rewards.xp;
+      let securedXp = earnedXp;
       const gritGained = rewards.grit;
 
       // Shadow interaction
@@ -102,37 +100,42 @@ export async function POST(
       let shadowInteraction: string | null = null;
       let shadowDefeated = false;
       let stolenXp = 0;
+      let reclaimedXp = 0;
 
       if (activeShadow) {
-        // Apply steal
-        const stealResult = applyShadowSteal(xpGained, activeShadow.stealRate);
-        xpGained = stealResult.actualXp;
+        // Apply parasitic steal
+        const stealResult = applyShadowSteal(earnedXp, activeShadow.stealRate);
+        securedXp = stealResult.actualXp;
         stolenXp = stealResult.stolenXp;
+        const newStolenPool = (activeShadow.stolenXpPool || 0) + stolenXp;
 
         if (focusVerified) {
           const newProgress = activeShadow.sealProgress + 1;
           if (newProgress >= activeShadow.stepsNeeded) {
             // Shadow defeated!
             shadowDefeated = true;
+            reclaimedXp = computeReclaimedXp(newStolenPool);
+
             await tx.shadowEntity.update({
               where: { id: activeShadow.id },
               data: {
                 sealProgress: newProgress,
+                stolenXpPool: newStolenPool,
                 defeatedAt: now,
               },
             });
 
             // Award Scar badge
-            const scarName = `Scar: Survived the Void of ${task.attribute.name}`;
+            const scarName = `Scar of ${task.attribute.name}`;
             const scarCosmetic = await tx.cosmeticItem.upsert({
               where: { name: scarName },
               update: {},
               create: {
                 name: scarName,
                 type: 'badge',
-                description: `Defeated the Shadow haunting your ${task.attribute.name}`,
+                description: `Permanent testament: Banished the Shadow haunting your ${task.attribute.name}.`,
                 price: 0,
-                cssClass: `badge-scar-${task.attribute.name.toLowerCase()}`,
+                cssClass: `badge-scar`,
               },
             });
 
@@ -147,11 +150,11 @@ export async function POST(
               create: {
                 userId: user.id,
                 itemId: scarCosmetic.id,
-                equipped: false,
+                equipped: true,
               },
             });
 
-            // Grant 48h XP boost
+            // Grant 48h XP boost (+10% resolve)
             await tx.attribute.update({
               where: { id: task.attributeId },
               data: {
@@ -163,11 +166,21 @@ export async function POST(
           } else {
             await tx.shadowEntity.update({
               where: { id: activeShadow.id },
-              data: { sealProgress: newProgress },
+              data: {
+                sealProgress: newProgress,
+                stolenXpPool: newStolenPool,
+              },
             });
             shadowInteraction = 'progressed';
           }
         } else {
+          // Quick checkbox completion: Shadow steals, no progress on banish seal
+          await tx.shadowEntity.update({
+            where: { id: activeShadow.id },
+            data: {
+              stolenXpPool: newStolenPool,
+            },
+          });
           shadowInteraction = 'stealing';
         }
       }
@@ -179,8 +192,9 @@ export async function POST(
         now
       );
 
-      // Update attribute
-      const newXp = task.attribute.xp + xpGained;
+      // Attribute XP update (secured + any reclaimed XP on defeat)
+      const totalXpAdded = securedXp + reclaimedXp;
+      const newXp = task.attribute.xp + totalXpAdded;
       const oldLevel = task.attribute.level;
       const newLevel = computeLevel(newXp);
       const leveledUp = newLevel > oldLevel;
@@ -206,7 +220,7 @@ export async function POST(
         data: {
           userId: user.id,
           taskId: task.id,
-          xpAwarded: xpGained,
+          xpAwarded: totalXpAdded,
           gritAwarded: gritGained,
           focusVerified,
           completedAt: now,
@@ -219,11 +233,15 @@ export async function POST(
         data: { status: 'done' },
       });
 
+      // Part A #7: Transparent 3-number reconciliation payload
       return {
         task: updatedTask,
-        xpGained,
+        earned: earnedXp,
+        stolen: stolenXp,
+        secured: securedXp,
+        reclaimed: reclaimedXp,
         gritGained,
-        stolenXp,
+        newXp,
         newLevel,
         oldLevel,
         leveledUp,

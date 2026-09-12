@@ -10,10 +10,15 @@ function getSupabaseAdmin() {
 
 export async function POST(request: Request) {
   try {
-    const { email, password, name } = await request.json();
+    const { email, password, name, customAttributes } = await request.json();
     if (!email || !password || !name || !email.trim() || !password.trim() || !name.trim()) {
       return NextResponse.json({ error: 'Missing or empty fields' }, { status: 400 });
     }
+
+    const defaultNames = ['Intellect', 'Strength', 'Discipline', 'Creativity'];
+    const attributeNames: string[] = Array.isArray(customAttributes) && customAttributes.length === 4
+      ? customAttributes.map((n: string, idx: number) => (n && typeof n === 'string' && n.trim()) ? n.trim() : defaultNames[idx])
+      : defaultNames;
 
     const supabase = getSupabaseAdmin();
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -32,12 +37,7 @@ export async function POST(request: Request) {
         email: email.trim().toLowerCase(),
         name: name.trim(),
         attributes: {
-          create: [
-            { name: 'Intellect' },
-            { name: 'Strength' },
-            { name: 'Discipline' },
-            { name: 'Creativity' },
-          ]
+          create: attributeNames.map(attrName => ({ name: attrName }))
         }
       },
       include: { attributes: true }

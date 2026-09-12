@@ -3,8 +3,8 @@ import { prisma } from '@/lib/prisma';
 import {
   computeDecay,
   computeStepsNeeded,
-  SHADOW_INITIAL_HP,
-  SHADOW_HP_PER_DAY,
+  computeBaselineWeeklyRate,
+  computeShadowHp,
   DECAY_GRACE_HOURS,
 } from '@/lib/game-engine';
 
@@ -33,8 +33,12 @@ export async function POST(request: Request) {
       oldXp: number;
       newXp: number;
       overdueDays: number;
+      shadowHp: number;
+      baselineWeeklyRate: number;
       shadowAction: string;
     }> = [];
+
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
     for (const attr of staleAttributes) {
       // Compute decay
@@ -44,13 +48,25 @@ export async function POST(request: Request) {
         now
       );
 
-      // Update attribute XP (never negative, level never reduced)
+      // Update attribute XP
       await prisma.attribute.update({
         where: { id: attr.id },
         data: { xp: newXp },
       });
 
-      // Shadow spawn/growth
+      // Query historical completions in trailing 14 days to compute habit baseline
+      const completionsCount = await prisma.completionLog.count({
+        where: {
+          userId: attr.userId,
+          task: { attributeId: attr.id },
+          completedAt: { gte: fourteenDaysAgo },
+        },
+      });
+
+      const baselineWeeklyRate = computeBaselineWeeklyRate(completionsCount);
+      const computedHp = computeShadowHp(baselineWeeklyRate, overdueDays);
+
+      // Shadow spawn / growth
       const activeShadow = await prisma.shadowEntity.findFirst({
         where: {
           attributeId: attr.id,
@@ -62,23 +78,23 @@ export async function POST(request: Request) {
       let shadowAction: string;
 
       if (!activeShadow) {
-        // Spawn new shadow
         await prisma.shadowEntity.create({
           data: {
             userId: attr.userId,
             attributeId: attr.id,
-            hp: SHADOW_INITIAL_HP,
-            stepsNeeded: computeStepsNeeded(SHADOW_INITIAL_HP),
+            hp: computedHp,
+            baselineWeeklyRate,
+            stepsNeeded: computeStepsNeeded(computedHp),
           },
         });
         shadowAction = 'spawned';
       } else {
-        // Grow existing shadow
-        const newHp = activeShadow.hp + SHADOW_HP_PER_DAY * overdueDays;
+        const newHp = Math.max(activeShadow.hp, computedHp);
         await prisma.shadowEntity.update({
           where: { id: activeShadow.id },
           data: {
             hp: newHp,
+            baselineWeeklyRate,
             stepsNeeded: computeStepsNeeded(newHp),
           },
         });
@@ -91,6 +107,8 @@ export async function POST(request: Request) {
         oldXp: attr.xp,
         newXp,
         overdueDays,
+        shadowHp: computedHp,
+        baselineWeeklyRate,
         shadowAction,
       });
 

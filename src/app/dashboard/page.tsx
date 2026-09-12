@@ -2,14 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Navbar from '@/components/Navbar';
-import CharacterSheet from '@/components/CharacterSheet';
-import TaskList from '@/components/TaskList';
-import GhostRivalPanel from '@/components/GhostRivalPanel';
+import LivingLedger from '@/components/LivingLedger';
+import ChronoDial from '@/components/ChronoDial';
+import LedgerToast, { LedgerToastData } from '@/components/LedgerToast';
 import ShopModal from '@/components/ShopModal';
 import LevelUpModal from '@/components/LevelUpModal';
 import FocusTimerModal from '@/components/FocusTimerModal';
-import DemoControlBar from '@/components/DemoControlBar';
-import DecayAlertBanner from '@/components/DecayAlertBanner';
 
 interface DashboardData {
   user: {
@@ -33,10 +31,11 @@ interface DashboardData {
     shadow: {
       id: string;
       hp: number;
+      baselineWeeklyRate: number;
       stealRate: number;
       sealProgress: number;
       stepsNeeded: number;
-      manifestedAt: string;
+      stolenXpPool?: number;
     } | null;
   }>;
   tasks: Array<{
@@ -80,6 +79,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [levelUpData, setLevelUpData] = useState<LevelUpInfo | null>(null);
+  const [ledgerToast, setLedgerToast] = useState<LedgerToastData | null>(null);
   const [activeFocusTask, setActiveFocusTask] = useState<{
     id: string;
     title: string;
@@ -90,11 +90,11 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
       const res = await fetch('/api/dashboard');
-      if (!res.ok) throw new Error('Failed to load dashboard data');
+      if (!res.ok) throw new Error('Failed to load living ledger');
       const json = await res.json();
       setData(json);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : 'An error occurred loading the ledger');
     } finally {
       setLoading(false);
     }
@@ -104,11 +104,8 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  // Handle task completion with level-up detection
-  const handleTaskComplete = async (
-    taskId: string,
-    focusSessionId?: string
-  ) => {
+  // Handle task completion with transparent 3-number ledger reconciliation
+  const handleTaskComplete = async (taskId: string, focusSessionId?: string) => {
     try {
       const res = await fetch(`/api/tasks/${taskId}/complete`, {
         method: 'POST',
@@ -118,6 +115,18 @@ export default function DashboardPage() {
 
       if (res.ok) {
         const result = await res.json();
+        
+        // Trigger Ledger Toast (v4 Part A #7)
+        setLedgerToast({
+          earned: result.earned,
+          stolen: result.stolen,
+          secured: result.secured,
+          reclaimed: result.reclaimed,
+          shadowDefeated: result.shadowDefeated,
+          attributeName: result.attributeName,
+        });
+
+        // Trigger Level-Up Celebration
         if (result.leveledUp) {
           setLevelUpData({
             attributeName: result.attributeName,
@@ -126,28 +135,55 @@ export default function DashboardPage() {
         }
       }
 
-      // Refresh dashboard data
       await fetchDashboardData();
     } catch (err) {
       console.error('Failed to complete task:', err);
     }
   };
 
+  const handleAddTask = async (title: string, attributeId: string) => {
+    await fetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, attributeId }),
+    });
+    await fetchDashboardData();
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+    await fetchDashboardData();
+  };
+
+  const handleRenameAttribute = async (attributeId: string, newName: string) => {
+    await fetch(`/api/attributes/${attributeId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName }),
+    });
+    await fetchDashboardData();
+  };
+
+  const handleFastForward = async (days: number) => {
+    await fetch('/api/cron/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days }),
+    });
+    await fetchDashboardData();
+  };
+
   if (loading && !data) {
     return (
-      <div className="min-h-screen p-6 space-y-6">
-        <div className="h-16 bg-slate-900/50 rounded-lg animate-pulse" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="min-h-screen bg-[#1C2333] p-6 space-y-6 max-w-5xl mx-auto">
+        <div className="h-16 bg-[#23324A]/40 rounded-xl animate-pulse" />
+        <div className="space-y-4">
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="h-48 bg-slate-900/50 rounded-xl animate-pulse"
+              className="h-44 bg-[#23324A]/30 rounded-xl animate-pulse"
             />
           ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-4 h-64 bg-slate-900/50 rounded-xl animate-pulse" />
-          <div className="lg:col-span-8 h-96 bg-slate-900/50 rounded-xl animate-pulse" />
         </div>
       </div>
     );
@@ -155,15 +191,16 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="bg-slate-900 p-8 rounded-xl border border-slate-800 text-center space-y-4 max-w-md">
-          <div className="text-4xl">⚠️</div>
-          <p className="text-red-400 font-bold">{error}</p>
+      <div className="min-h-screen bg-[#1C2333] flex items-center justify-center p-4">
+        <div className="bg-[#E7E1D3] p-8 rounded-2xl parchment-shadow border border-[#A87C3F] text-center space-y-4 max-w-md text-[#23324A]">
+          <div className="text-4xl">📜</div>
+          <h3 className="font-serif font-bold text-lg">Ledger Access Issue</h3>
+          <p className="text-xs text-[#4E5E7A]">{error}</p>
           <button
             onClick={fetchDashboardData}
-            className="px-6 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-colors"
+            className="px-6 py-2 bg-[#A87C3F] hover:bg-[#926B34] text-white font-serif font-bold text-xs rounded-lg transition-colors shadow"
           >
-            Retry
+            Re-read Ledger
           </button>
         </div>
       </div>
@@ -173,58 +210,50 @@ export default function DashboardPage() {
   if (!data) return null;
 
   const totalLevel = data.attributes.reduce((sum, a) => sum + a.level, 0);
-  const decayingAttrs = data.attributes
-    .filter((a) => a.decayStatus === 'decaying')
-    .map((a) => ({ name: a.name, xpLost: 0 }));
-  const currentTotalXp = data.attributes.reduce((sum, a) => sum + a.xp, 0);
 
   return (
-    <div className="min-h-screen flex flex-col pb-20">
+    <div className="min-h-screen bg-[#1C2333] text-[#E7E1D3] flex flex-col pb-20">
       <Navbar
         user={data.user}
         grit={data.user.grit}
         totalLevel={totalLevel}
-      />
+      >
+        {/* Diegetic Chrono Dial Fast-Forward in Header (v4 Part A #5) */}
+        <ChronoDial onFastForward={handleFastForward} />
+      </Navbar>
 
-      {decayingAttrs.length > 0 && (
-        <DecayAlertBanner decayedAttributes={decayingAttrs} />
-      )}
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-8 space-y-8">
+        {/* The Living Ledger — Primary Navigation Lens (v4 Part A #3) */}
+        <LivingLedger
+          attributes={data.attributes}
+          tasks={data.tasks}
+          onCompleteTask={handleTaskComplete}
+          onStartFocus={(task) => setActiveFocusTask({ id: task.id, title: task.title })}
+          onAddTask={handleAddTask}
+          onDeleteTask={handleDeleteTask}
+          onRenameAttribute={handleRenameAttribute}
+        />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
-        {/* Character Sheet — Attributes Grid */}
-        <CharacterSheet attributes={data.attributes} />
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column: Ghost Rival */}
-          <div className="lg:col-span-4 space-y-6">
-            <GhostRivalPanel
-              snapshots={data.snapshots}
-              currentTotalXp={currentTotalXp}
-            />
-
-            {/* Shop Button */}
-            <button
-              onClick={() => setIsShopOpen(true)}
-              className="w-full py-3 bg-gradient-to-r from-amber-500/20 to-violet-500/20 border border-amber-500/30 rounded-xl text-amber-300 font-medium hover:border-amber-500/50 transition-colors"
-            >
-              💰 Grit Shop — {data.user.grit} Grit
-            </button>
+        {/* Footer Ledger Bar: Grit Market trigger */}
+        <div className="flex flex-col sm:flex-row items-center justify-between p-4 rounded-xl border border-[#2A354C] bg-[#23324A]/40 gap-3 text-xs">
+          <div className="flex items-center gap-2 text-[#9AA5B8]">
+            <span className="text-[#A87C3F]">✦</span>
+            <span>All entries sealed with immutable timestamps and server-verified proof of grind.</span>
           </div>
-
-          {/* Right Column: Tasks */}
-          <div className="lg:col-span-8 space-y-6">
-            <TaskList
-              tasks={data.tasks}
-              attributes={data.attributes}
-              onRefresh={fetchDashboardData}
-              onStartFocus={(task) =>
-                setActiveFocusTask({ id: task.id, title: task.title })
-              }
-              onComplete={handleTaskComplete}
-            />
-          </div>
+          <button
+            onClick={() => setIsShopOpen(true)}
+            className="px-4 py-2 rounded-lg bg-[#23324A] hover:bg-[#2D3E5C] text-[#A87C3F] font-serif font-semibold border border-[#A87C3F]/40 transition-colors shadow-sm whitespace-nowrap"
+          >
+            The Void Market · {data.user.grit} 🪙
+          </button>
         </div>
       </main>
+
+      {/* Transparent Three-Figure Ledger Toast (v4 Part A #7) */}
+      <LedgerToast
+        toast={ledgerToast}
+        onDismiss={() => setLedgerToast(null)}
+      />
 
       {/* Modals */}
       {isShopOpen && (
@@ -270,18 +299,6 @@ export default function DashboardPage() {
           onClose={() => setActiveFocusTask(null)}
         />
       )}
-
-      {/* Demo Mode Controls */}
-      <DemoControlBar
-        onSimulate={async (days: number) => {
-          await fetch('/api/cron/simulate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ days }),
-          });
-          fetchDashboardData();
-        }}
-      />
     </div>
   );
 }
