@@ -35,20 +35,32 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protect /dashboard — redirect to /login if not authenticated
-  if (
-    !user &&
-    request.nextUrl.pathname.startsWith('/dashboard')
-  ) {
+  // Protect application routes — redirect to /login if not authenticated
+  const protectedPrefixes = [
+    '/dashboard',
+    '/character',
+    '/history',
+    '/armory',
+    '/attribute',
+    '/focus',
+    '/onboarding',
+  ];
+  const isProtected = protectedPrefixes.some((prefix) =>
+    request.nextUrl.pathname.startsWith(prefix)
+  );
+
+  if (!user && isProtected) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from /login and /register to /dashboard
+  // Redirect authenticated users away from /login, /signup, /register to /dashboard
   if (
     user &&
-    (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/register')
+    (request.nextUrl.pathname === '/login' ||
+      request.nextUrl.pathname === '/signup' ||
+      request.nextUrl.pathname === '/register')
   ) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';

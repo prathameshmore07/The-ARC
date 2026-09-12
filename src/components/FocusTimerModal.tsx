@@ -153,7 +153,6 @@ export default function FocusTimerModal({
               {formatTime(elapsed)}
             </div>
             <div className="text-xs text-[#A87C3F] font-serif font-semibold flex items-center justify-center gap-1">
-              <span>✦</span>
               <span>{heartbeats} Server Intervals Banked</span>
             </div>
           </div>

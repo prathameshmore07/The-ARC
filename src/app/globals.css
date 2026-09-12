@@ -1,37 +1,37 @@
 @import "tailwindcss";
 
 :root {
-  --ink-navy: #1C2333;
-  --page-bone: #E7E1D3;
-  --page-bone-dark: #DDD6C6;
-  --brass: #A87C3F;
-  --brass-light: #C99E60;
-  --stain: #2E2A33;
-  --stain-dark: #1E1B22;
-  --fresh-ink: #23324A;
-  --faded-ink: #4E5E7A;
-  --reclaim: #6B8F71;
-  --reclaim-light: #8BAF91;
-  
-  --bg-primary: var(--ink-navy);
+  --ink-navy: #1C2333;      /* app background */
+  --page-bone: #E7E1D3;     /* ledger card/page surface */
+  --page-bone-dim: #DCD5C4;
+  --brass: #A87C3F;         /* positive: currency, level, healthy progress */
+  --brass-bright: #C79A55;
+  --stain: #2E2A33;         /* Shadow / decay color */
+  --fresh-ink: #23324A;     /* text on page-bone */
+  --reclaim: #6B8F71;       /* rare: only for "reclaimed on defeat" moments */
+  --line: #C9C0AA;
 }
 
 /* Base Body Styling */
 body {
   background-color: var(--ink-navy);
   color: var(--page-bone);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Living Ledger Typography */
-.font-ledger-heading {
-  font-family: Georgia, Cambria, "Times New Roman", Times, serif;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+/* Headings and Stamps - Fraunces / Serif */
+h1, h2, h3, h4, .font-serif, .font-heading {
+  font-family: "Fraunces", Georgia, Cambria, "Times New Roman", serif;
+  font-feature-settings: "liga" 1, "kern" 1;
+}
+
+/* Body / UI Chrome - Public Sans */
+p, span, button, input, label, select, .font-sans {
+  font-family: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 /* Torn Deckle Bottom Edge */
@@ -134,13 +134,23 @@ body {
   background: var(--brass);
 }
 
-/* Subtle Brass Focus Ring */
+/* Subtle Brass Focus Ring (Mandatory Accessibility) */
 *:focus-visible {
-  outline: 2px solid var(--brass);
-  outline-offset: 2px;
+  outline: 2px solid var(--brass) !important;
+  outline-offset: 2px !important;
 }
 
 ::selection {
   background-color: var(--brass);
   color: var(--ink-navy);
+}
+
+/* Reduced Motion Support (Mandatory Accessibility) */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

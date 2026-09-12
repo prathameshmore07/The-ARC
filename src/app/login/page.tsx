@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabaseBrowser } from '@/lib/supabase-browser';
@@ -15,80 +15,93 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!email.trim() || !password) {
+      setError('Please provide your email and password');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { error } = await supabaseBrowser.auth.signInWithPassword({
-        email,
+      const { error: authError } = await supabaseBrowser.auth.signInWithPassword({
+        email: email.trim(),
         password,
       });
 
-      if (error) throw error;
+      if (authError) {
+        setError(authError.message || 'Invalid credentials');
+        return;
+      }
+
       router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.message || 'Failed to authenticate');
+    } catch {
+      setError('Unable to reach authentication service');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#1C2333] flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-[#E7E1D3] p-8 rounded-2xl parchment-shadow border border-[#A87C3F]/40 text-[#23324A]">
-        <div className="text-center mb-6">
-          <span className="text-3xl">📜</span>
-          <h2 className="text-2xl font-serif font-bold text-[#23324A] mt-2">
-            Open Your Ledger
-          </h2>
-          <p className="text-xs text-[#4E5E7A] mt-1 font-serif">
-            Enter your credentials to inspect your life areas and defend against entropy.
-          </p>
-        </div>
-        
+    <div className="min-h-screen bg-[var(--ink-navy)] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-[var(--page-bone)] p-8 sm:p-10 rounded-2xl parchment-shadow border border-[var(--line)] text-[var(--fresh-ink)]">
+        <h1 className="font-serif font-bold text-3xl text-[var(--fresh-ink)] mb-2">
+          Welcome back.
+        </h1>
+        <p className="text-sm text-[var(--fresh-ink)]/70 mb-8">
+          Inspect your chronicle and confront whatever has grown in your absence.
+        </p>
+
         {error && (
-          <div className="mb-5 p-3 bg-[#8B3A3A]/10 border border-[#8B3A3A]/40 text-[#8B3A3A] rounded-lg text-xs text-center font-medium">
+          <div className="mb-6 p-3 rounded-lg bg-[var(--stain)]/10 text-[var(--stain)] text-xs font-medium">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
           <div>
-            <label className="block text-xs font-serif font-semibold text-[#4E5E7A] mb-1">Email</label>
+            <label htmlFor="login-email" className="block text-xs font-semibold text-[var(--fresh-ink)] mb-1.5">
+              Email
+            </label>
             <input
+              id="login-email"
               type="email"
               required
-              placeholder="scribe@domain.com"
-              className="w-full bg-[#DDD6C6] border border-[#23324A]/20 rounded-lg px-3.5 py-2 text-sm text-[#23324A] focus:outline-none focus:ring-1 focus:ring-[#A87C3F]"
+              placeholder="you@domain.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-[var(--page-bone-dim)]/50 border border-[var(--line)] rounded-xl px-4 py-3 text-sm text-[var(--fresh-ink)] placeholder-[var(--fresh-ink)]/40 focus:outline-none focus:ring-2 focus:ring-[var(--ink-navy)] transition-all"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-serif font-semibold text-[#4E5E7A] mb-1">Password</label>
+            <label htmlFor="login-password" className="block text-xs font-semibold text-[var(--fresh-ink)] mb-1.5">
+              Password
+            </label>
             <input
+              id="login-password"
               type="password"
               required
               placeholder="••••••••"
-              className="w-full bg-[#DDD6C6] border border-[#23324A]/20 rounded-lg px-3.5 py-2 text-sm text-[#23324A] focus:outline-none focus:ring-1 focus:ring-[#A87C3F]"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-[var(--page-bone-dim)]/50 border border-[var(--line)] rounded-xl px-4 py-3 text-sm text-[var(--fresh-ink)] placeholder-[var(--fresh-ink)]/40 focus:outline-none focus:ring-2 focus:ring-[var(--ink-navy)] transition-all"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-2 py-3 bg-[#A87C3F] hover:bg-[#926B34] text-white font-serif font-bold rounded-xl transition-all shadow-md disabled:opacity-50 text-sm cursor-pointer"
+            className="w-full mt-2 py-3.5 px-6 rounded-xl bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] font-serif font-bold text-base transition-all shadow-md active:scale-98 disabled:opacity-50 cursor-pointer"
           >
-            {loading ? 'Reading Chronicle...' : 'Sign In'}
+            {loading ? 'Continuing...' : 'Continue'}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-xs text-[#4E5E7A] font-serif">
-          No ledger yet?{' '}
-          <Link href="/register" className="text-[#A87C3F] font-bold hover:underline">
-            Inscribe a new one
+        <p className="mt-8 text-center text-xs text-[var(--fresh-ink)]/70">
+          New here?{' '}
+          <Link href="/signup" className="font-semibold text-[var(--fresh-ink)] underline hover:text-[var(--brass)]">
+            Start a ledger
           </Link>
         </p>
       </div>

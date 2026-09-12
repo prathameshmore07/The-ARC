@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Sparkles, X } from 'lucide-react';
 
 export interface LedgerToastData {
   earned: number;
@@ -28,46 +29,48 @@ export default function LedgerToast({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 20, scale: 0.95 }}
         transition={{ type: 'spring', damping: 20, stiffness: 200 }}
-        className="fixed bottom-6 right-6 z-50 max-w-md w-full p-4 rounded-xl parchment-shadow border border-[#C99E60]/40 bg-[#E7E1D3] text-[#23324A]"
+        className="fixed bottom-6 right-6 z-50 max-w-md w-full p-4 rounded-xl parchment-shadow border border-[var(--brass)]/40 bg-[var(--page-bone)] text-[var(--fresh-ink)]"
+        role="status"
+        aria-live="polite"
       >
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="font-serif font-bold text-sm tracking-wide text-[#A87C3F]">
-                LEDGER ENTRY · {toast.attributeName.toUpperCase()}
+              <span className="font-serif font-bold text-xs tracking-wider text-[var(--brass)] uppercase">
+                Ledger Entry · {toast.attributeName}
               </span>
               {toast.shadowDefeated && (
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[#6B8F71] text-white">
-                  STAIN LIFTED
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[var(--reclaim)] text-white">
+                  Stain Lifted
                 </span>
               )}
             </div>
 
-            {/* Three-Figure Transparent Ledger Line (v4 Part A #7) */}
+            {/* Three-Figure Transparent Ledger Line (v4 Part A #7 & Section 3.7) */}
             <div className="flex flex-wrap items-center gap-2 text-sm font-semibold mt-2">
-              <span className="text-[#23324A]">
-                Earned <span className="font-bold">+{toast.earned}</span>
+              <span className="text-[var(--fresh-ink)]">
+                +{toast.earned} earned
               </span>
-              <span className="text-[#4E5E7A]">·</span>
+              <span className="text-[var(--fresh-ink)]/40">→</span>
               
               {toast.stolen > 0 ? (
-                <span className="text-[#8B3A3A]">
-                  Shadow took <span className="font-bold">-{toast.stolen}</span>
+                <span className="text-red-700">
+                  −{toast.stolen} taken by Shadow
                 </span>
               ) : (
-                <span className="text-[#4E5E7A]">Shadow took 0</span>
+                <span className="text-[var(--fresh-ink)]/60">0 taken</span>
               )}
               
-              <span className="text-[#4E5E7A]">·</span>
-              <span className="text-[#23324A] bg-[#DDD6C6] px-2 py-0.5 rounded">
-                Secured <span className="font-bold">+{toast.secured} XP</span>
+              <span className="text-[var(--fresh-ink)]/40">→</span>
+              <span className="text-[var(--fresh-ink)] bg-[var(--page-bone-dim)] px-2 py-0.5 rounded font-bold">
+                {toast.secured} XP secured
               </span>
             </div>
 
             {/* Reclaimed XP triumphant notice */}
             {toast.reclaimed && toast.reclaimed > 0 ? (
-              <div className="mt-2.5 pt-2 border-t border-[#C99E60]/30 text-xs font-bold text-[#466B4C] flex items-center gap-1.5">
-                <span>✦</span>
+              <div className="mt-2.5 pt-2 border-t border-[var(--brass)]/30 text-xs font-bold text-[var(--reclaim)] flex items-center gap-1.5 font-serif">
+                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Reclaimed +{toast.reclaimed} lost XP from the banished Shadow!</span>
               </div>
             ) : null}
@@ -75,10 +78,10 @@ export default function LedgerToast({
 
           <button
             onClick={onDismiss}
-            className="text-[#4E5E7A] hover:text-[#23324A] text-lg font-bold p-1 ml-2"
-            aria-label="Dismiss toast"
+            className="text-[var(--fresh-ink)]/50 hover:text-[var(--fresh-ink)] p-1 ml-2 cursor-pointer"
+            aria-label="Dismiss ledger notification"
           >
-            ✕
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       </motion.div>

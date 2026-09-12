@@ -31,6 +31,15 @@ export async function GET() {
         cosmetics: {
           include: { item: true },
         },
+        completions: {
+          orderBy: { completedAt: 'desc' },
+          take: 30,
+          include: {
+            task: {
+              include: { attribute: true },
+            },
+          },
+        },
       },
     });
 
@@ -67,6 +76,7 @@ export async function GET() {
       cosmetics: {
         owned: userData.cosmetics,
       },
+      completions: userData.completions,
     });
   } catch (error) {
     console.error('Dashboard error:', error);
