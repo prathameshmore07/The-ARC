@@ -25,7 +25,10 @@ export default function Navigation({
   const supabase = createSupabaseBrowserClient();
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      await supabase.auth.signOut();
+    } catch {}
     window.location.href = '/login';
   };
 

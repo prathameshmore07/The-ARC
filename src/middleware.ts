@@ -6,34 +6,43 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key',
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
+  // Check demo session cookie
+  const demoCookie = request.cookies.get('ee_demo_session');
+  let hasUser = !!demoCookie?.value;
 
-  // Refresh the session — this is required for Server Components to read
-  // an up-to-date session.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!hasUser) {
+    try {
+      const supabase = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key',
+        {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll();
+            },
+            setAll(cookiesToSet) {
+              cookiesToSet.forEach(({ name, value }) =>
+                request.cookies.set(name, value)
+              );
+              supabaseResponse = NextResponse.next({
+                request,
+              });
+              cookiesToSet.forEach(({ name, value, options }) =>
+                supabaseResponse.cookies.set(name, value, options)
+              );
+            },
+          },
+        }
+      );
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      hasUser = !!user;
+    } catch {
+      hasUser = false;
+    }
+  }
 
   // Protect application routes — redirect to /login if not authenticated
   const protectedPrefixes = [
@@ -49,7 +58,7 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith(prefix)
   );
 
-  if (!user && isProtected) {
+  if (!hasUser && isProtected) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
@@ -57,7 +66,7 @@ export async function middleware(request: NextRequest) {
 
   // Redirect authenticated users away from /login, /signup, /register to /dashboard
   if (
-    user &&
+    hasUser &&
     (request.nextUrl.pathname === '/login' ||
       request.nextUrl.pathname === '/signup' ||
       request.nextUrl.pathname === '/register')
@@ -72,13 +81,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - api (API routes handle their own auth)
-     */
     '/((?!_next/static|_next/image|favicon.ico|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
