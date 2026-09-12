@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id            String          @id // = Supabase auth.uid(), no separate mapping
+  email         String          @unique
+  name          String?
+  grit          Int             @default(0)
+  createdAt     DateTime        @default(now())
+  attributes    Attribute[]
+  tasks         Task[]
+  completions   CompletionLog[]
+  focusSessions FocusSession[]
+  snapshots     DailySnapshot[]
+  shadows       ShadowEntity[]
+  cosmetics     UserCosmetic[]
+}
+
+model Attribute {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  xp             Int            @default(0)
+  level          Int            @default(1)
+  lastActivityAt DateTime       @default(now())
+  streak         Int            @default(0)
+  xpBoostUntil   DateTime?
+  tasks          Task[]
+  shadows        ShadowEntity[]
+
+  @@index([userId])
+}
+
+model Task {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attributeId String
+  attribute   Attribute       @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  title       String
+  status      String          @default("pending") // pending | in_progress | done
+  createdAt   DateTime        @default(now())
+  completions CompletionLog[]
+
+  @@index([userId])
+  @@index([attributeId])
+}
+
+model CompletionLog {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId        String
+  task          Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  xpAwarded     Int
+  gritAwarded   Int      @default(0)
+  focusVerified Boolean  @default(false)
+  completedAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([taskId])
+}
+
+model FocusSession {
+  id                  String    @id @default(cuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId              String
+  startedAt           DateTime  @default(now())
+  lastHeartbeat       DateTime  @default(now())
+  heartbeatCount      Int       @default(0)
+  endedAt             DateTime?
+  validated           Boolean   @default(false)
+  computedDurationSec Int?
+
+  @@index([userId])
+}
+
+model ShadowEntity {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attributeId  String
+  attribute    Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  hp           Int       @default(10)
+  stealRate    Float     @default(0.2)
+  sealProgress Int       @default(0)
+  stepsNeeded  Int       @default(3)
+  manifestedAt DateTime  @default(now())
+  defeatedAt   DateTime?
+
+  @@index([userId])
+  @@index([attributeId])
+}
+
+model DailySnapshot {
+  id      String   @id @default(cuid())
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date    DateTime
+  totalXp Int
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+model CosmeticItem {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  type        String         // "theme" | "badge" | "title"
+  price       Int
+  cssClass    String
+  description String?
+  users       UserCosmetic[]
+}
+
+model UserCosmetic {
+  id       String       @id @default(cuid())
+  userId   String
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId   String
+  item     CosmeticItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  equipped Boolean      @default(false)
+  earnedAt DateTime     @default(now())
+
+  @@unique([userId, itemId])
+  @@index([userId])
+}
