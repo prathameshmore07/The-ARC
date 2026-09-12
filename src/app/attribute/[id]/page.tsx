@@ -5,9 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as RadioGroup from '@radix-ui/react-radio-group';
-import * as Select from '@radix-ui/react-select';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Plus, Check, Play, Skull, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Plus, Check, Play, Skull, Sparkles, Coins, Zap } from 'lucide-react';
 import Navigation from '@/components/Navigation';
 import LevelUpOverlay, { LevelUpData } from '@/components/LevelUpOverlay';
 import LedgerToast, { LedgerToastData } from '@/components/LedgerToast';
@@ -49,6 +48,7 @@ export default function QuestBoardPage({
   const [quests, setQuests] = useState<Quest[]>([]);
   const [loading, setLoading] = useState(true);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [floatingReward, setFloatingReward] = useState<{ id: string; xp: number; gold: number } | null>(null);
 
   // Dialog state
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -98,6 +98,7 @@ export default function QuestBoardPage({
           attributeId: selectedAttrId,
         }),
       });
+
       if (res.ok) {
         setQuestTitle('');
         setIsDialogOpen(false);
@@ -108,16 +109,17 @@ export default function QuestBoardPage({
     }
   };
 
-  // Handle Quest Click / Complete (Section 3.7)
+  // Handle Quest Click / Complete with tactile float animation
   const handleBeginQuest = async (quest: Quest) => {
-    // If medium or hard, routes to Focus Mode (Section 3.9)
     if (quest.difficulty === 'medium' || quest.difficulty === 'hard') {
       router.push(`/focus/${quest.id}`);
       return;
     }
 
-    // Instant Complete (Easy): button compression -> checkmark morph -> three-number toast -> XP bar animation
     setCompletingTaskId(quest.id);
+    const rewardXp = 25;
+    const rewardGold = 10;
+    setFloatingReward({ id: quest.id, xp: rewardXp, gold: rewardGold });
 
     try {
       const res = await fetch(`/api/tasks/${quest.id}/complete`, {
@@ -129,7 +131,6 @@ export default function QuestBoardPage({
       if (res.ok) {
         const result = await res.json();
 
-        // 3. Small toast rises showing the three-number split (Section 3.7)
         setLedgerToast({
           earned: result.earned,
           stolen: result.stolen,
@@ -139,7 +140,6 @@ export default function QuestBoardPage({
           attributeName: attribute?.name || 'Quest',
         });
 
-        // 4. If crosses level threshold, hand off to Level-Up overlay (Section 3.10)
         if (result.leveledUp) {
           setLevelUpData({
             attributeName: result.attributeName,
@@ -152,7 +152,10 @@ export default function QuestBoardPage({
     } finally {
       setTimeout(() => {
         setCompletingTaskId(null);
-      }, 600);
+      }, 700);
+      setTimeout(() => {
+        setFloatingReward(null);
+      }, 1200);
     }
   };
 
@@ -164,10 +167,10 @@ export default function QuestBoardPage({
 
   if (loading || !attribute) {
     return (
-      <div className="min-h-screen bg-[var(--ink-navy)] p-6">
+      <div className="min-h-screen bg-[var(--bg-base)] p-6">
         <div className="max-w-3xl mx-auto space-y-4 pt-12">
-          <div className="h-8 bg-[var(--page-bone)]/10 rounded w-32 animate-pulse" />
-          <div className="h-48 bg-[var(--page-bone)]/5 rounded-xl animate-pulse" />
+          <div className="h-8 bg-[var(--bg-surface-1)] rounded w-32 animate-pulse" />
+          <div className="h-48 bg-[var(--bg-surface-1)] rounded-xl animate-pulse" />
         </div>
       </div>
     );
@@ -178,46 +181,46 @@ export default function QuestBoardPage({
   const doneQuests = quests.filter((q) => q.status === 'done');
 
   return (
-    <div className="min-h-screen bg-[var(--ink-navy)] text-[var(--page-bone)] flex flex-col pb-24 md:pb-12">
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex flex-col pb-24 md:pb-12">
       <Navigation />
 
       <main className="max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
         {/* Back Link */}
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-1.5 text-xs text-[var(--page-bone-dim)] hover:text-[var(--page-bone)] transition-colors mb-6 font-medium"
+          className="inline-flex items-center gap-1.5 text-xs text-[var(--text-dim)] hover:text-[var(--text-headline)] transition-colors mb-6 font-medium"
         >
           <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-          <span>Return to Ledger</span>
+          <span>Return to Dashboard</span>
         </Link>
 
-        {/* Quest Board Header (Section 3.6) */}
-        <div className="bg-[var(--page-bone)] text-[var(--fresh-ink)] p-8 rounded-2xl parchment-shadow border border-[var(--line)] mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--line)] pb-4">
+        {/* Quest Board Hero Card */}
+        <div className="bg-[var(--bg-surface-1)] p-6 sm:p-8 rounded-2xl shadow-rpg-md border border-[var(--border-subtle)] mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
             <div>
-              <span className="text-xs font-serif font-bold uppercase tracking-wider text-[var(--brass)] block mb-1">
-                Quest Board
+              <span className="text-xs font-serif font-bold uppercase tracking-wider text-[var(--accent-amber)] block mb-1">
+                Discipline Board
               </span>
-              <h1 className="font-serif font-bold text-4xl sm:text-5xl tracking-tight">
+              <h1 className="font-serif font-bold text-3xl sm:text-4xl text-[var(--text-headline)] tracking-tight">
                 {attribute.name}
               </h1>
             </div>
 
-            <div className="text-right">
-              <span className="font-serif font-bold text-2xl text-[var(--fresh-ink)] block">
+            <div className="text-left sm:text-right">
+              <span className="font-serif font-bold text-xl text-[var(--accent-amber)] block">
                 Level {attribute.level}
               </span>
-              <span className="text-xs text-[var(--fresh-ink)]/70">
+              <span className="text-xs text-[var(--text-dim)]">
                 {attribute.xp} / {attribute.xpForNextLevel} XP
               </span>
             </div>
           </div>
 
-          {/* XP Bar (Intensity 5/10 animation) */}
+          {/* XP Bar */}
           <div className="mt-4">
-            <div className="h-2.5 bg-[var(--page-bone-dim)] rounded-full overflow-hidden border border-[var(--line)]">
+            <div className="h-3 bg-[#1F2937] rounded-full overflow-hidden border border-[var(--border-subtle)]">
               <motion.div
-                className="h-full bg-[var(--brass)]"
+                className="h-full rounded-full bg-gradient-to-r from-[var(--accent-slate)] to-[var(--accent-amber)]"
                 initial={{ width: 0 }}
                 animate={{ width: `${Math.round(attribute.progress * 100)}%` }}
                 transition={{ duration: 0.6, ease: 'easeOut' }}
@@ -227,16 +230,16 @@ export default function QuestBoardPage({
 
           {/* Shadow Alert (if active) */}
           {isShadowed && attribute.shadow && (
-            <div className="mt-5 p-3 rounded-xl bg-[var(--stain)] text-[var(--page-bone)] flex items-center justify-between">
+            <div className="mt-5 p-3.5 rounded-xl bg-red-950/40 border border-red-500/30 text-red-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Skull className="w-4 h-4 text-red-400" aria-hidden="true" />
                 <span className="text-xs font-serif font-bold">
-                  Shadow Active (HP {attribute.shadow.hp}) · Taxes 20% of gained XP
+                  Shadow Active (HP {attribute.shadow.hp}) · Steals 20% of gained XP
                 </span>
               </div>
               <Link
                 href={`/attribute/${attribute.id}/confront`}
-                className="text-xs font-serif font-bold text-[var(--brass)] hover:underline"
+                className="text-xs font-serif font-bold px-3 py-1 rounded bg-[var(--accent-brick)] hover:bg-red-700 text-white transition-colors"
               >
                 Confront
               </Link>
@@ -246,13 +249,13 @@ export default function QuestBoardPage({
 
         {/* Quest List Action Header */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-serif font-bold text-xl text-[var(--page-bone)]">
-            Available Quests
+          <h2 className="font-serif font-bold text-xl text-[var(--text-headline)]">
+            Active Quests
           </h2>
 
           <Dialog.Root open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <Dialog.Trigger asChild>
-              <button className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] font-serif font-bold text-xs transition-colors shadow-sm cursor-pointer">
+              <button className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--accent-slate)] hover:bg-slate-500 text-white font-serif font-bold text-xs transition-colors shadow-rpg-sm cursor-pointer">
                 <Plus className="w-4 h-4" aria-hidden="true" />
                 <span>Forge a Quest</span>
               </button>
@@ -260,40 +263,39 @@ export default function QuestBoardPage({
 
             {/* Radix Dialog Shell for Creating Quest */}
             <Dialog.Portal>
-              <Dialog.Overlay className="fixed inset-0 z-50 bg-[var(--ink-navy)]/80 backdrop-blur-sm" />
-              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-[var(--page-bone)] p-8 rounded-2xl parchment-shadow border border-[var(--line)] text-[var(--fresh-ink)]">
-                <Dialog.Title className="font-serif font-bold text-2xl text-[var(--fresh-ink)] mb-1">
+              <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+              <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md bg-[var(--bg-surface-1)] p-8 rounded-2xl shadow-rpg-md border border-[var(--border-subtle)] text-[var(--text-body)]">
+                <Dialog.Title className="font-serif font-bold text-2xl text-[var(--text-headline)] mb-1">
                   Forge a Quest
                 </Dialog.Title>
-                <Dialog.Description className="text-xs text-[var(--fresh-ink)]/70 mb-6">
-                  Set a concrete real-world action to bank progress and weaken the void.
+                <Dialog.Description className="text-xs text-[var(--text-dim)] mb-6">
+                  Set a concrete real-world action to bank progress and counter entropy.
                 </Dialog.Description>
 
                 <form onSubmit={handleForgeQuest} className="space-y-4">
                   <div>
-                    <label htmlFor="quest-title" className="block text-xs font-semibold mb-1.5">
-                      What needs to be done?
+                    <label htmlFor="quest-title" className="block text-xs font-semibold text-[var(--text-dim)] mb-1.5">
+                      What needs to be accomplished?
                     </label>
                     <input
                       id="quest-title"
                       type="text"
                       required
-                      placeholder="e.g. Read 20 pages of technical paper"
+                      placeholder="e.g. Implement parser module or run 5km"
                       value={questTitle}
                       onChange={(e) => setQuestTitle(e.target.value)}
-                      className="w-full bg-[var(--page-bone-dim)]/50 border border-[var(--line)] rounded-xl px-4 py-2.5 text-sm text-[var(--fresh-ink)] placeholder-[var(--fresh-ink)]/40 focus:outline-none focus:ring-2 focus:ring-[var(--ink-navy)]"
+                      className="w-full bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 text-sm text-[var(--text-headline)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent-amber)]"
                     />
                   </div>
 
-                  {/* Attribute Select (Radix Select) */}
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5">
-                      Attribute
+                    <label className="block text-xs font-semibold text-[var(--text-dim)] mb-1.5">
+                      Discipline
                     </label>
                     <select
                       value={selectedAttrId}
                       onChange={(e) => setSelectedAttrId(e.target.value)}
-                      className="w-full bg-[var(--page-bone-dim)]/50 border border-[var(--line)] rounded-xl px-4 py-2.5 text-sm text-[var(--fresh-ink)] focus:outline-none"
+                      className="w-full bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 text-sm text-[var(--text-headline)] focus:outline-none"
                     >
                       {allAttributes.map((a) => (
                         <option key={a.id} value={a.id}>
@@ -303,10 +305,9 @@ export default function QuestBoardPage({
                     </select>
                   </div>
 
-                  {/* Difficulty RadioGroup (Styled as 3 Quiet Pill Buttons) */}
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5">
-                      Difficulty
+                    <label className="block text-xs font-semibold text-[var(--text-dim)] mb-1.5">
+                      Difficulty & Scope
                     </label>
                     <RadioGroup.Root
                       value={difficulty}
@@ -319,8 +320,8 @@ export default function QuestBoardPage({
                           value={diff}
                           className={`py-2 px-3 rounded-lg text-xs font-semibold capitalize border transition-all text-center cursor-pointer ${
                             difficulty === diff
-                              ? 'bg-[var(--brass)] text-[var(--ink-navy)] border-[var(--brass)] shadow-sm'
-                              : 'bg-[var(--page-bone-dim)]/40 text-[var(--fresh-ink)] border-[var(--line)] hover:border-[var(--brass)]/50'
+                              ? 'bg-[var(--accent-slate)] text-white border-[var(--accent-slate)] shadow-sm'
+                              : 'bg-[var(--bg-surface-2)] text-[var(--text-dim)] border-[var(--border-subtle)] hover:border-[var(--border-hover)]'
                           }`}
                         >
                           {diff}
@@ -330,10 +331,10 @@ export default function QuestBoardPage({
                   </div>
 
                   {/* Live Reward Preview */}
-                  <div className="p-3 bg-[var(--page-bone-dim)]/40 rounded-xl border border-[var(--line)] flex items-center justify-between text-xs">
-                    <span className="text-[var(--fresh-ink)]/70">Reward Preview:</span>
-                    <span className="font-serif font-bold text-[var(--brass)] text-sm">
-                      +{getRewardAmount(difficulty)} XP
+                  <div className="p-3 bg-[var(--bg-surface-2)] rounded-xl border border-[var(--border-subtle)] flex items-center justify-between text-xs">
+                    <span className="text-[var(--text-dim)]">Reward Guarantee:</span>
+                    <span className="font-serif font-bold text-[var(--accent-amber)] text-sm">
+                      +{getRewardAmount(difficulty)} XP · +10 Gold
                     </span>
                   </div>
 
@@ -341,7 +342,7 @@ export default function QuestBoardPage({
                     <Dialog.Close asChild>
                       <button
                         type="button"
-                        className="px-4 py-2 rounded-xl text-xs text-[var(--fresh-ink)]/70 hover:text-[var(--fresh-ink)]"
+                        className="px-4 py-2 rounded-xl text-xs text-[var(--text-faint)] hover:text-[var(--text-body)]"
                       >
                         Cancel
                       </button>
@@ -350,7 +351,7 @@ export default function QuestBoardPage({
                     <button
                       type="submit"
                       disabled={!questTitle.trim() || creatingQuest}
-                      className="px-5 py-2.5 bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] font-serif font-bold text-xs rounded-xl shadow-sm disabled:opacity-50"
+                      className="px-5 py-2.5 bg-[var(--accent-amber)] hover:bg-amber-300 text-[var(--bg-base)] font-serif font-bold text-xs rounded-xl shadow-sm disabled:opacity-50"
                     >
                       {creatingQuest ? 'Forging...' : 'Forge Quest'}
                     </button>
@@ -361,46 +362,70 @@ export default function QuestBoardPage({
           </Dialog.Root>
         </div>
 
-        {/* Quest List (Section 3.6 & 3.7) */}
+        {/* Quest List */}
         <div className="space-y-3">
           {pendingQuests.length === 0 ? (
-            <div className="p-8 text-center bg-[var(--page-bone)]/5 rounded-2xl border border-[var(--page-bone-dim)]/15 text-sm text-[var(--page-bone-dim)]">
-              No open quests for {attribute.name}. Forge one above to begin banking progress.
+            <div className="p-8 text-center bg-[var(--bg-surface-1)] rounded-2xl border border-[var(--border-subtle)] text-sm text-[var(--text-dim)]">
+              No open quests recorded for {attribute.name}. Forge one above to begin banking progress.
             </div>
           ) : (
             pendingQuests.map((quest) => {
               const isCompleting = completingTaskId === quest.id;
+              const hasFloat = floatingReward && floatingReward.id === quest.id;
+
               return (
                 <div
                   key={quest.id}
-                  className="flex items-center justify-between p-4 rounded-xl bg-[var(--page-bone)] text-[var(--fresh-ink)] parchment-shadow border border-[var(--line)] transition-all"
+                  className="relative flex items-center justify-between p-4 sm:p-5 rounded-xl bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] shadow-rpg-sm transition-all"
                 >
+                  {/* Floating +XP and +Gold popup at point of action */}
+                  {hasFloat && (
+                    <div className="absolute right-12 top-0 pointer-events-none z-30 animate-float-up flex items-center gap-2">
+                      <span className="text-xs font-bold font-serif text-[var(--accent-amber)] bg-black/80 px-2 py-0.5 rounded shadow">
+                        +{floatingReward.xp} XP
+                      </span>
+                      <span className="text-xs font-bold text-amber-200 bg-black/80 px-2 py-0.5 rounded shadow">
+                        +{floatingReward.gold} Gold
+                      </span>
+                    </div>
+                  )}
+
                   <div>
-                    <h3 className="font-medium text-sm text-[var(--fresh-ink)]">{quest.title}</h3>
-                    <span className="text-[11px] text-[var(--brass)] font-semibold mt-0.5 block">
-                      +25 XP
-                    </span>
+                    <h3 className="font-semibold text-sm text-[var(--text-headline)] mb-1">
+                      {quest.title}
+                    </h3>
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className="text-[var(--accent-amber)] font-medium flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        +25 XP
+                      </span>
+                      <span className="text-amber-200/80 font-medium flex items-center gap-1">
+                        <Coins className="w-3 h-3" />
+                        +10 Gold
+                      </span>
+                      <span className="text-[var(--text-faint)]">· Daily Objective</span>
+                    </div>
                   </div>
 
-                  {/* Begin Quest Button (Not a checkbox!) */}
+                  {/* Tactile Complete Button */}
                   <button
                     onClick={() => handleBeginQuest(quest)}
                     disabled={isCompleting}
-                    className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg font-serif font-bold text-xs transition-all cursor-pointer ${
+                    className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg font-serif font-bold text-xs transition-all cursor-pointer ${
                       isCompleting
-                        ? 'bg-[var(--reclaim)] text-white scale-95'
-                        : 'bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] active:scale-95 shadow-sm'
+                        ? 'bg-[var(--accent-forest)] text-white scale-95 shadow-rpg-glow'
+                        : 'bg-[var(--accent-slate)] hover:bg-slate-500 text-white active:scale-95 shadow-rpg-sm'
                     }`}
                   >
                     {isCompleting ? (
                       <>
                         <Check className="w-3.5 h-3.5 animate-in zoom-in" aria-hidden="true" />
-                        <span>Completed</span>
+                        <span>Reclaimed</span>
                       </>
                     ) : (
                       <>
                         <Play className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
-                        <span>Begin Quest</span>
+                        <span>Complete</span>
                       </>
                     )}
                   </button>
@@ -409,19 +434,19 @@ export default function QuestBoardPage({
             })
           )}
 
-          {/* Inked Done Quests */}
+          {/* Archived Done Quests */}
           {doneQuests.length > 0 && (
-            <div className="pt-6 border-t border-[var(--page-bone-dim)]/10">
-              <span className="text-xs uppercase font-serif tracking-wider text-[var(--page-bone-dim)]/60 block mb-3">
-                Archived Quests ({doneQuests.length})
+            <div className="pt-6 border-t border-[var(--border-subtle)]">
+              <span className="text-xs uppercase font-serif tracking-wider text-[var(--text-faint)] block mb-3">
+                Completed Quests ({doneQuests.length})
               </span>
               <div className="space-y-2">
                 {doneQuests.slice(0, 5).map((q) => (
                   <div
                     key={q.id}
-                    className="flex items-center gap-2.5 p-3 rounded-lg bg-[var(--page-bone)]/5 text-[var(--page-bone-dim)]/60 text-xs line-through border border-white/5"
+                    className="flex items-center gap-2.5 p-3 rounded-lg bg-[var(--bg-surface-1)]/40 text-[var(--text-faint)] text-xs line-through border border-[var(--border-subtle)]/40"
                   >
-                    <Check className="w-3.5 h-3.5 text-[var(--reclaim)]" aria-hidden="true" />
+                    <Check className="w-3.5 h-3.5 text-[var(--accent-forest)]" aria-hidden="true" />
                     <span>{q.title}</span>
                   </div>
                 ))}

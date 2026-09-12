@@ -72,7 +72,7 @@ export default function HistoryPage() {
   const dayKeys = Object.keys(groupedByDay);
 
   return (
-    <div className="min-h-screen bg-[var(--ink-navy)] text-[var(--page-bone)] flex flex-col pb-24 md:pb-12">
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex flex-col pb-24 md:pb-12">
       <Navigation
         totalLevel={totalLevel}
         totalXp={totalXp}
@@ -84,17 +84,17 @@ export default function HistoryPage() {
       <main className="max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="font-serif font-bold text-3xl sm:text-4xl tracking-tight text-[var(--page-bone)]">
+          <h1 className="font-serif font-bold text-3xl sm:text-4xl tracking-tight text-[var(--text-headline)]">
             Chronicle History
           </h1>
-          <p className="text-xs text-[var(--page-bone-dim)] mt-1">
-            Reverse-chronological ledger log of inked entries and focus sessions.
+          <p className="text-xs text-[var(--text-dim)] mt-1">
+            Reverse-chronological log of completed quests and deep focus sessions.
           </p>
         </div>
 
-        {/* Grouped Days Log (Section 3.12: plain rows, dates as headers, not card-per-entry) */}
+        {/* Grouped Days Log */}
         {dayKeys.length === 0 ? (
-          <div className="bg-[var(--page-bone)]/5 p-8 rounded-2xl border border-[var(--page-bone-dim)]/15 text-center text-sm text-[var(--page-bone-dim)]">
+          <div className="bg-[var(--bg-surface-1)] p-8 rounded-2xl border border-[var(--border-subtle)] text-center text-sm text-[var(--text-dim)]">
             No entries inscribed yet. Complete a quest to start building your chronicle.
           </div>
         ) : (
@@ -103,22 +103,22 @@ export default function HistoryPage() {
               <section key={day} aria-labelledby={`date-header-${day}`}>
                 <h2
                   id={`date-header-${day}`}
-                  className="font-serif font-bold text-base text-[var(--brass)] pb-2 mb-3 border-b border-[var(--page-bone-dim)]/20"
+                  className="font-serif font-bold text-base text-[var(--accent-amber)] pb-2 mb-3 border-b border-[var(--border-subtle)]"
                 >
                   {day}
                 </h2>
 
-                <div className="divide-y divide-[var(--page-bone-dim)]/10 bg-[var(--page-bone)]/5 rounded-xl border border-[var(--page-bone-dim)]/15 overflow-hidden">
+                <div className="divide-y divide-[var(--border-subtle)] bg-[var(--bg-surface-1)] rounded-xl border border-[var(--border-subtle)] overflow-hidden shadow-rpg-sm">
                   {groupedByDay[day].map((entry) => (
                     <div
                       key={entry.id}
-                      className="px-4 py-3 flex items-center justify-between text-sm hover:bg-[var(--page-bone)]/10 transition-colors"
+                      className="px-4 py-3.5 flex items-center justify-between text-sm hover:bg-[var(--bg-surface-2)] transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <CheckCircle className="w-4 h-4 text-[var(--brass)] flex-shrink-0" aria-hidden="true" />
+                        <CheckCircle className="w-4 h-4 text-[var(--accent-forest)] flex-shrink-0" aria-hidden="true" />
                         <div>
-                          <span className="font-medium text-[var(--page-bone)]">{entry.task.title}</span>
-                          <span className="text-xs text-[var(--page-bone-dim)]/60 ml-2">
+                          <span className="font-medium text-[var(--text-headline)]">{entry.task.title}</span>
+                          <span className="text-xs text-[var(--text-dim)] ml-2">
                             ({entry.task.attribute.name})
                           </span>
                         </div>
@@ -126,12 +126,12 @@ export default function HistoryPage() {
 
                       <div className="flex items-center gap-3 text-xs">
                         {entry.focusVerified && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--brass)]/15 text-[var(--brass-bright)] font-serif">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--accent-slate)]/20 text-sky-300 border border-[var(--accent-slate)]/40 font-serif">
                             <Zap className="w-3 h-3" aria-hidden="true" />
                             <span>Server-Timed</span>
                           </span>
                         )}
-                        <span className="font-mono font-bold text-[var(--brass)]">
+                        <span className="font-mono font-bold text-[var(--accent-amber)]">
                           +{entry.xpAwarded} XP
                         </span>
                       </div>

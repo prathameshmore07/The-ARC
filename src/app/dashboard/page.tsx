@@ -5,7 +5,21 @@ import Link from 'next/link';
 import Navigation from '@/components/Navigation';
 import ChronoDial from '@/components/ChronoDial';
 import LevelUpOverlay, { LevelUpData } from '@/components/LevelUpOverlay';
-import { ChevronRight, Skull, ShieldAlert, Sparkles, ArrowRight } from 'lucide-react';
+import { 
+  Brain, 
+  Dumbbell, 
+  Compass, 
+  Palette, 
+  Flame, 
+  ShieldAlert, 
+  Skull, 
+  ArrowRight, 
+  ChevronRight, 
+  Sparkles,
+  Zap,
+  Clock,
+  Plus
+} from 'lucide-react';
 import { getLevelTitle, getShadowOriginStory } from '@/lib/game-engine';
 
 interface ShadowData {
@@ -62,7 +76,7 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
       const res = await fetch('/api/dashboard');
-      if (!res.ok) throw new Error('Failed to load ledger');
+      if (!res.ok) throw new Error('Failed to load chronicle');
       const json = await res.json();
       setData(json);
     } catch (err: unknown) {
@@ -85,14 +99,22 @@ export default function DashboardPage() {
     await fetchDashboardData();
   };
 
+  const getAttributeIcon = (name: string) => {
+    const lower = name.toLowerCase();
+    if (lower.includes('intellect') || lower.includes('code') || lower.includes('mind')) return Brain;
+    if (lower.includes('strength') || lower.includes('body') || lower.includes('gym')) return Dumbbell;
+    if (lower.includes('discipline') || lower.includes('focus')) return Compass;
+    return Palette;
+  };
+
   if (loading && !data) {
     return (
-      <div className="min-h-screen bg-[var(--ink-navy)] p-6">
-        <div className="max-w-4xl mx-auto space-y-4 pt-12">
-          <div className="h-10 bg-[var(--page-bone)]/10 rounded-lg w-48 animate-pulse" />
-          <div className="space-y-4">
+      <div className="min-h-screen bg-[var(--bg-base)] p-6">
+        <div className="max-w-6xl mx-auto space-y-6 pt-12">
+          <div className="h-44 bg-[var(--bg-surface-1)] rounded-2xl animate-pulse" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-40 bg-[var(--page-bone)]/5 rounded-xl animate-pulse" />
+              <div key={i} className="h-48 bg-[var(--bg-surface-1)] rounded-xl animate-pulse" />
             ))}
           </div>
         </div>
@@ -102,15 +124,15 @@ export default function DashboardPage() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-[var(--ink-navy)] flex items-center justify-center p-4">
-        <div className="bg-[var(--page-bone)] p-8 rounded-2xl parchment-shadow max-w-sm w-full text-center text-[var(--fresh-ink)]">
-          <h2 className="font-serif font-bold text-xl mb-2">Chronicle Offline</h2>
-          <p className="text-xs text-[var(--fresh-ink)]/70 mb-6">{error || 'Unable to open ledger'}</p>
+      <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center p-4">
+        <div className="bg-[var(--bg-surface-1)] p-8 rounded-2xl shadow-rpg-md max-w-sm w-full text-center text-[var(--text-body)] border border-[var(--border-subtle)]">
+          <h2 className="font-serif font-bold text-xl mb-2 text-[var(--text-headline)]">Chronicle Offline</h2>
+          <p className="text-xs text-[var(--text-dim)] mb-6">{error || 'Unable to open chronicle'}</p>
           <button
             onClick={fetchDashboardData}
-            className="px-5 py-2.5 bg-[var(--brass)] text-[var(--ink-navy)] font-serif font-bold rounded-xl text-xs"
+            className="px-5 py-2.5 bg-[var(--accent-slate)] text-white font-serif font-bold rounded-xl text-xs"
           >
-            Re-read Ledger
+            Re-sync Chronicle
           </button>
         </div>
       </div>
@@ -121,205 +143,278 @@ export default function DashboardPage() {
   const totalXp = data.attributes.reduce((sum, a) => sum + a.xp, 0);
   const activeShadow = data.attributes.find((a) => a.shadow && !a.shadow.defeatedAt);
   const hasActiveShadow = !!activeShadow;
+  const maxStreak = Math.max(...data.attributes.map((a) => a.streak), 1);
+
+  // Calculate overall level XP bracket
+  const xpForNextLevel = totalLevel * 250;
+  const currentLevelProgress = Math.min(100, Math.round((totalXp % 250) / 2.5));
 
   return (
-    <div className="min-h-screen bg-[var(--ink-navy)] text-[var(--page-bone)] flex flex-col pb-24 md:pb-12">
-      {/* Top Persistent Navigation (Section 3.14) */}
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex flex-col pb-24 md:pb-12">
+      {/* Top Persistent Navigation */}
       <Navigation
         totalLevel={totalLevel}
         totalXp={totalXp}
         grit={data.user.grit}
         hasActiveShadow={hasActiveShadow}
         activeShadowAttrId={activeShadow ? activeShadow.id : null}
+        streakDays={maxStreak}
       />
 
-      {/* Main Ledger Content (Section 3.5) */}
-      <main className="max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
-        {/* Ledger Header Strip */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-          <div>
-            <h1 className="font-serif font-bold text-3xl sm:text-4xl tracking-tight text-[var(--page-bone)]">
-              Your Ledger
-            </h1>
-            <p className="text-xs text-[var(--page-bone-dim)] mt-1">
-              Select an entry to view its quest board, or confront an active shadow.
-            </p>
+      <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
+        {/* Hero Level Card (WANDR & Crownfall guidance: Answer number -> Supporting -> Detail) */}
+        <div className="p-6 sm:p-8 rounded-2xl bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] shadow-rpg-md mb-8 relative overflow-hidden">
+          {/* Subtle background gradient glow */}
+          <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-slate-700/10 via-transparent to-transparent pointer-events-none" />
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10 mb-6">
+            <div>
+              <div className="flex items-center gap-2.5 mb-1.5">
+                <span className="text-xs uppercase tracking-wider text-[var(--accent-amber)] font-bold">
+                  {getLevelTitle(totalLevel)}
+                </span>
+                <span className="text-[var(--text-faint)]">·</span>
+                <span className="text-xs text-[var(--text-dim)]">{data.user.name || 'Chronicler'}</span>
+              </div>
+              <h1 className="font-serif font-bold text-4xl sm:text-5xl text-[var(--text-headline)] tracking-tight">
+                Level {totalLevel}
+              </h1>
+            </div>
+
+            {/* Fast-Forward Chrono Dial */}
+            <div className="flex items-center gap-3">
+              <ChronoDial onFastForward={handleFastForward} />
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Diegetic Chrono Dial Fast-Forward Lever */}
-            <ChronoDial onFastForward={handleFastForward} />
+          {/* XP Progress Bar (Track #1F2937, Gradient Fill, Smooth Spring) */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-[var(--text-dim)] font-medium">Overall Progress</span>
+              <span className="font-serif font-bold text-[var(--accent-amber)]">
+                {totalXp} / {xpForNextLevel} XP ({currentLevelProgress}%)
+              </span>
+            </div>
+            <div className="h-3.5 bg-[#1F2937] rounded-full overflow-hidden p-0.5 border border-[var(--border-subtle)]">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[var(--accent-slate)] to-[var(--accent-amber)] transition-all duration-700 shadow-sm"
+                style={{ width: `${Math.max(6, currentLevelProgress)}%` }}
+              />
+            </div>
           </div>
         </div>
 
-        {/* Vertical Ledger List of Attributes */}
-        <div className="space-y-5" role="feed" aria-label="Living Ledger Entries">
-          {data.attributes.map((attr) => {
-            const shadow = attr.shadow;
-            const isShadowed = !!shadow;
-            const attrTasks = data.tasks.filter((t) => t.attributeId === attr.id);
-            const pendingTasksCount = attrTasks.filter((t) => t.status !== 'done').length;
+        {/* Dashboard 2-Column Grid: Stat Cards + Right Rail */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Main 4 Stat Cards (Col-span 2) */}
+          <div className="lg:col-span-2 space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="font-serif font-bold text-xl text-[var(--text-headline)]">
+                Core Disciplines
+              </h2>
+              <span className="text-xs text-[var(--text-dim)]">
+                Neglect triggers decay after 48h
+              </span>
+            </div>
 
-            const msSinceActivity = Date.now() - new Date(attr.lastActivityAt).getTime();
-            const daysNeglected = Math.max(1, Math.floor(msSinceActivity / (1000 * 60 * 60 * 24)));
-            const originStory = shadow
-              ? getShadowOriginStory(shadow.baselineWeeklyRate || 0, daysNeglected)
-              : null;
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {data.attributes.map((attr) => {
+                const shadow = attr.shadow;
+                const isShadowed = !!shadow;
+                const Icon = getAttributeIcon(attr.name);
+                const attrTasks = data.tasks.filter((t) => t.attributeId === attr.id);
+                const pendingTasksCount = attrTasks.filter((t) => t.status !== 'done').length;
 
-            return (
-              <div
-                key={attr.id}
-                className={`relative rounded-2xl overflow-hidden transition-all duration-300 ${
-                  isShadowed ? 'stained-shadow bg-[var(--stain)]' : 'parchment-shadow bg-[var(--page-bone)]'
-                }`}
-              >
-                {/* Torn Deckle Bottom Edge */}
-                <div
-                  className={`p-6 sm:p-7 ledger-deckle-edge transition-colors duration-300 relative ${
-                    isShadowed
-                      ? 'bg-[var(--stain)] text-[var(--page-bone)]'
-                      : 'bg-[var(--page-bone)] text-[var(--fresh-ink)]'
-                  }`}
-                >
-                  {/* Ink Stain SVG Bleed Overlay with feTurbulence Filter (Section 3.5 & 3.8) */}
-                  {isShadowed && (
-                    <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-                      <svg viewBox="0 0 500 200" className="w-full h-full opacity-35" preserveAspectRatio="none">
-                        <filter id={`turb-${attr.id}`}>
-                          <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" result="noise" />
-                          <feDisplacementMap in="SourceGraphic" in2="noise" scale="35" xChannelSelector="R" yChannelSelector="G" />
-                        </filter>
-                        <rect width="100%" height="100%" fill="#16131A" filter={`url(#turb-${attr.id})`} />
-                      </svg>
-                    </div>
-                  )}
+                const msSinceActivity = Date.now() - new Date(attr.lastActivityAt).getTime();
+                const hoursNeglected = Math.floor(msSinceActivity / (1000 * 60 * 60));
+                const daysNeglected = Math.max(1, Math.floor(hoursNeglected / 24));
+                const originStory = shadow
+                  ? getShadowOriginStory(shadow.baselineWeeklyRate || 0, daysNeglected)
+                  : null;
 
-                  {/* Entry Header */}
-                  <div className="relative z-10">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-current/15">
-                      <div className="flex items-center gap-3">
-                        <Link
-                          href={`/attribute/${attr.id}`}
-                          className="font-serif font-bold text-2xl sm:text-3xl hover:text-[var(--brass)] transition-colors inline-flex items-center gap-2 group"
-                        >
-                          <span>{attr.name}</span>
-                          <ChevronRight className="w-5 h-5 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
-                        </Link>
-
-                        <span className="text-xs font-serif font-semibold px-2.5 py-0.5 rounded-full border border-current/25">
-                          {getLevelTitle(attr.level)}
-                        </span>
-                      </div>
-
-                      {/* Stat Stamps: Level & Streak */}
-                      <div className="flex items-center gap-4 text-xs font-serif">
-                        <div>
-                          <span className="opacity-60 mr-1">Level</span>
-                          <span className="font-bold text-base">{attr.level}</span>
-                        </div>
-                        <div className="h-3 w-px bg-current/20" />
-                        <div>
-                          <span className="opacity-60 mr-1">Streak</span>
-                          <span className="font-bold">{attr.streak}d</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* XP Progress Bar */}
-                    <div className="mt-3 flex items-center gap-3">
-                      <div className="flex-1 h-2 bg-current/10 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all duration-700 ${
-                            isShadowed ? 'bg-red-400' : 'bg-[var(--brass)]'
-                          }`}
-                          style={{ width: `${Math.round(attr.progress * 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-[11px] font-sans opacity-70 whitespace-nowrap">
-                        {attr.xp} / {attr.xpForNextLevel} XP
-                      </span>
-                    </div>
-
-                    {/* Shadow Entity Section (if shadowed) */}
-                    {isShadowed && shadow ? (
-                      <div className="mt-4 p-4 rounded-xl bg-black/40 border border-red-500/30">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-                          <div className="flex items-center gap-2">
-                            <Skull className="w-4 h-4 text-red-400" aria-hidden="true" />
-                            <span className="font-serif font-bold text-sm text-[var(--page-bone)]">
-                              Shadow Active · HP {shadow.hp}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/80 text-red-300 border border-red-800">
-                              -20% XP Tax
-                            </span>
-                          </div>
-
-                          {/* Seal Steps Row */}
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className="font-serif text-[var(--brass-bright)]">Seal:</span>
-                            <div className="flex items-center gap-1.5" aria-label={`Banishing seal step ${shadow.sealProgress} of ${shadow.stepsNeeded}`}>
-                              {Array.from({ length: shadow.stepsNeeded }).map((_, i) => (
-                                <div
-                                  key={i}
-                                  className={`w-3 h-3 rounded-full border transition-all ${
-                                    i < shadow.sealProgress
-                                      ? 'bg-[var(--reclaim)] border-[var(--reclaim)] shadow-[0_0_6px_rgba(107,143,113,0.8)]'
-                                      : 'bg-black/60 border-current/30'
-                                  }`}
-                                />
-                              ))}
-                            </div>
-                            <span className="font-mono text-xs opacity-80">
-                              {shadow.sealProgress}/{shadow.stepsNeeded}
-                            </span>
-                          </div>
-                        </div>
-
-                        {originStory && (
-                          <p className="text-xs italic text-[var(--page-bone-dim)] font-serif mb-3">
-                            "{originStory}"
-                          </p>
-                        )}
-
-                        <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                          <span className="text-xs text-[var(--page-bone-dim)]">
-                            {pendingTasksCount} quests available to forge counter-attack
-                          </span>
-                          <Link
-                            href={`/attribute/${attr.id}/confront`}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] font-serif font-bold text-xs transition-colors shadow-sm"
+                return (
+                  <div
+                    key={attr.id}
+                    className={`p-5 rounded-xl transition-all duration-200 flex flex-col justify-between ${
+                      isShadowed
+                        ? 'bg-[var(--bg-surface-1)] border-2 border-[var(--accent-brick)]/60 shadow-legendary'
+                        : 'bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] shadow-rpg-sm'
+                    }`}
+                  >
+                    <div>
+                      {/* Card Header: Icon + Name + Decay Badge */}
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-10 h-10 rounded-lg flex items-center justify-center border ${
+                              isShadowed
+                                ? 'bg-red-950/40 border-red-500/40 text-red-400'
+                                : 'bg-[var(--bg-surface-2)] border-[var(--border-subtle)] text-[var(--accent-slate)]'
+                            }`}
                           >
-                            <span>Confront Shadow</span>
-                            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                          </Link>
+                            <Icon className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <Link
+                              href={`/attribute/${attr.id}`}
+                              className="font-serif font-bold text-lg text-[var(--text-headline)] hover:text-[var(--accent-amber)] transition-colors flex items-center gap-1 group"
+                            >
+                              <span>{attr.name}</span>
+                              <ChevronRight className="w-4 h-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                            </Link>
+                            <span className="text-xs text-[var(--text-dim)]">
+                              Level {attr.level} · {getLevelTitle(attr.level)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Decay Status Pill */}
+                        {isShadowed ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-950/90 text-red-300 border border-red-800 animate-pulse">
+                            <Skull className="w-3 h-3 text-red-400" />
+                            Shadow
+                          </span>
+                        ) : hoursNeglected >= 36 ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-700/60">
+                            Decaying
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-950/50 text-emerald-300 border border-emerald-800/40">
+                            Safe
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Stat XP Progress */}
+                      <div className="space-y-1.5 my-3">
+                        <div className="flex justify-between text-[11px]">
+                          <span className="text-[var(--text-faint)]">XP</span>
+                          <span className="text-[var(--text-dim)] font-medium">
+                            {attr.xp} / {attr.xpForNextLevel}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-[#1F2937] rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              isShadowed
+                                ? 'bg-red-400'
+                                : 'bg-gradient-to-r from-[var(--accent-slate)] to-[var(--accent-amber)]'
+                            }`}
+                            style={{ width: `${Math.round(attr.progress * 100)}%` }}
+                          />
                         </div>
                       </div>
-                    ) : (
-                      /* Healthy Entry Action Footer */
-                      <div className="mt-4 flex items-center justify-between pt-2 border-t border-current/10">
-                        <span className="text-xs opacity-70">
-                          {pendingTasksCount === 0
-                            ? 'No active quests recorded.'
-                            : `${pendingTasksCount} active quest${pendingTasksCount === 1 ? '' : 's'}`}
-                        </span>
+
+                      {/* Shadow Warning or Lore */}
+                      {isShadowed && shadow && (
+                        <div className="p-3 rounded-lg bg-red-950/30 border border-red-900/40 my-3 text-xs">
+                          <div className="flex items-center justify-between text-red-200 font-bold mb-1">
+                            <span>Shadow HP {shadow.hp}</span>
+                            <span className="text-[10px] text-red-400">-20% XP Tax</span>
+                          </div>
+                          {originStory && (
+                            <p className="text-[11px] text-red-200/80 italic line-clamp-2">
+                              &ldquo;{originStory}&rdquo;
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer Actions */}
+                    <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs">
+                      <span className="text-[var(--text-faint)]">
+                        {pendingTasksCount} active quest{pendingTasksCount === 1 ? '' : 's'}
+                      </span>
+                      {isShadowed ? (
+                        <Link
+                          href={`/attribute/${attr.id}/confront`}
+                          className="inline-flex items-center gap-1.5 font-serif font-bold text-xs px-3 py-1.5 rounded-lg bg-[var(--accent-brick)] hover:bg-red-700 text-white shadow-sm transition-colors"
+                        >
+                          <Skull className="w-3.5 h-3.5" />
+                          <span>Confront</span>
+                        </Link>
+                      ) : (
                         <Link
                           href={`/attribute/${attr.id}`}
-                          className="inline-flex items-center gap-1 text-xs font-serif font-bold hover:text-[var(--brass)] transition-colors"
+                          className="inline-flex items-center gap-1 font-semibold text-[var(--accent-amber)] hover:text-amber-300 transition-colors"
                         >
-                          <span>Open Quest Board</span>
-                          <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>Open Quests</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
                         </Link>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right Rail: Streak Flame + Active Buffs + Quick Actions */}
+          <div className="space-y-6">
+            {/* Streak Flame Module */}
+            <div className="p-6 rounded-2xl bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] shadow-rpg-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Flame className="w-5 h-5 text-orange-400 fill-orange-400 animate-pulse" />
+                  <h3 className="font-serif font-bold text-lg text-[var(--text-headline)]">Streak Momentum</h3>
+                </div>
+                <span className="font-serif font-bold text-2xl text-orange-400">{maxStreak}d</span>
+              </div>
+              <p className="text-xs text-[var(--text-dim)] leading-relaxed mb-4">
+                Maintain activity in all disciplines to preserve your streak multiplier. At 7 days, unlock the Vanguard Flame.
+              </p>
+              <div className="h-1.5 bg-[#1F2937] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
+                  style={{ width: `${Math.min(100, (maxStreak / 7) * 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Active Buffs Module */}
+            <div className="p-6 rounded-2xl bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] shadow-rpg-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <Zap className="w-4 h-4 text-[var(--accent-amber)]" />
+                <h3 className="font-serif font-bold text-base text-[var(--text-headline)]">Active Buffs</h3>
+              </div>
+
+              <div className="space-y-3">
+                <div className="p-3 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] text-xs flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <div>
+                      <div className="font-semibold text-[var(--text-headline)]">Battle Resolve</div>
+                      <div className="text-[10px] text-[var(--text-dim)]">+10% XP on focus sessions</div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-[var(--accent-amber)] font-medium">38h</span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] text-xs flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <Clock className="w-4 h-4 text-sky-400" />
+                    <div>
+                      <div className="font-semibold text-[var(--text-headline)]">Obsidian Ledger</div>
+                      <div className="text-[10px] text-[var(--text-dim)]">Armory relic equipped</div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-emerald-400 font-medium">Active</span>
                 </div>
               </div>
-            );
-          })}
+
+              <Link
+                href="/armory"
+                className="mt-4 block text-center py-2 px-3 rounded-lg bg-[var(--bg-surface-2)] hover:bg-[var(--border-subtle)] text-xs font-semibold text-[var(--text-body)] transition-colors"
+              >
+                Visit Armory & Shop
+              </Link>
+            </div>
+          </div>
         </div>
       </main>
 
-      {/* Level-Up Celebration Overlay (Section 3.10) */}
+      {/* Level-Up Celebration Overlay */}
       <LevelUpOverlay
         levelUp={levelUpData}
         onDismiss={() => setLevelUpData(null)}

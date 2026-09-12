@@ -94,14 +94,14 @@ export default function OnboardingPage() {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, scale: 1.02 }}
       transition={{ duration: 0.4 }}
-      className="min-h-screen bg-[var(--ink-navy)] text-[var(--page-bone)] flex items-center justify-center p-6"
+      className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex items-center justify-center p-6"
     >
-      <div className="w-full max-w-xl bg-[var(--page-bone)] p-8 sm:p-12 rounded-2xl parchment-shadow border border-[var(--line)] text-[var(--fresh-ink)]">
-        <h1 className="font-serif font-bold text-3xl sm:text-4xl text-[var(--fresh-ink)] mb-2">
-          Name the four things you're building.
+      <div className="w-full max-w-xl bg-[var(--bg-surface-1)] p-8 sm:p-12 rounded-2xl shadow-rpg-md border border-[var(--border-subtle)] text-[var(--text-body)]">
+        <h1 className="font-serif font-bold text-3xl sm:text-4xl text-[var(--text-headline)] mb-2">
+          Name the four disciplines you forge.
         </h1>
-        <p className="text-sm text-[var(--fresh-ink)]/70 mb-8 leading-relaxed">
-          These are the four life areas tracked in your ledger. You can rename them to match your own life.
+        <p className="text-sm text-[var(--text-dim)] mb-8 leading-relaxed">
+          These are the four core pillars tracked in your chronicle. Rename them to represent your actual goals.
         </p>
 
         <div className="space-y-4 mb-10">
@@ -110,9 +110,9 @@ export default function OnboardingPage() {
             return (
               <div
                 key={idx}
-                className="flex items-center gap-3.5 p-2.5 bg-[var(--page-bone-dim)]/40 rounded-xl border border-[var(--line)]"
+                className="flex items-center gap-3.5 p-3 bg-[var(--bg-surface-2)] rounded-xl border border-[var(--border-subtle)]"
               >
-                <div className="w-10 h-10 rounded-lg bg-[var(--page-bone)] flex items-center justify-center border border-[var(--line)]/50 text-[var(--fresh-ink)] flex-shrink-0">
+                <div className="w-10 h-10 rounded-lg bg-[var(--bg-surface-1)] flex items-center justify-center border border-[var(--border-subtle)] text-[var(--accent-amber)] flex-shrink-0">
                   <IconComponent className="w-5 h-5" aria-hidden="true" />
                 </div>
                 <div className="flex-1">
@@ -124,10 +124,10 @@ export default function OnboardingPage() {
                     type="text"
                     value={attr.name}
                     onChange={(e) => handleNameChange(idx, e.target.value)}
-                    className="w-full font-serif font-bold text-lg bg-transparent text-[var(--fresh-ink)] focus:outline-none focus:ring-0 placeholder-[var(--fresh-ink)]/40"
+                    className="w-full font-serif font-bold text-lg bg-transparent text-[var(--text-headline)] focus:outline-none focus:ring-0 placeholder-[var(--text-faint)]"
                     placeholder="Attribute name"
                   />
-                  <span className="text-[11px] text-[var(--fresh-ink)]/60 block">
+                  <span className="text-[11px] text-[var(--text-dim)] block">
                     {DEFAULT_ATTRIBUTES[idx]?.description}
                   </span>
                 </div>
@@ -139,9 +139,9 @@ export default function OnboardingPage() {
         <button
           onClick={handleComplete}
           disabled={saving}
-          className="w-full py-4 px-6 rounded-xl bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] font-serif font-bold text-base transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          className="w-full py-4 px-6 rounded-xl bg-[var(--accent-slate)] hover:bg-slate-500 text-white font-serif font-bold text-base transition-all shadow-rpg-sm hover:shadow-rpg-glow active:scale-98 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
         >
-          <span>{saving ? 'Binding ledger...' : 'Open the ledger'}</span>
+          <span>{saving ? 'Inscribing...' : 'Enter the Chronicle'}</span>
           <ArrowRight className="w-4 h-4" aria-hidden="true" />
         </button>
       </div>

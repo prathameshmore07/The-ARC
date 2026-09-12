@@ -54,7 +54,7 @@ export default function CharacterPage() {
   const activeShadow = data.attributes?.find((a: any) => a.shadow && !a.shadow.defeatedAt);
 
   return (
-    <div className="min-h-screen bg-[var(--ink-navy)] text-[var(--page-bone)] flex flex-col pb-24 md:pb-12">
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex flex-col pb-24 md:pb-12">
       <Navigation
         totalLevel={totalLevel}
         totalXp={totalXp}
@@ -64,31 +64,31 @@ export default function CharacterPage() {
       />
 
       <main className="max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
-        {/* Character Title & Level Header (Section 3.11) */}
-        <div className="bg-[var(--page-bone)] text-[var(--fresh-ink)] p-8 rounded-2xl parchment-shadow border border-[var(--line)] mb-8">
-          <span className="text-xs font-serif font-bold uppercase tracking-widest text-[var(--brass)] block mb-1">
+        {/* Character Title & Level Header */}
+        <div className="bg-[var(--bg-surface-1)] p-6 sm:p-8 rounded-2xl shadow-rpg-md border border-[var(--border-subtle)] mb-8">
+          <span className="text-xs font-serif font-bold uppercase tracking-widest text-[var(--accent-amber)] block mb-1">
             Character Ledger
           </span>
-          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2 border-b border-[var(--line)] pb-4">
-            <h1 className="font-serif font-bold text-4xl sm:text-5xl tracking-tight">
+          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2 border-b border-[var(--border-subtle)] pb-4">
+            <h1 className="font-serif font-bold text-4xl sm:text-5xl text-[var(--text-headline)] tracking-tight">
               {characterTitle}
             </h1>
             <div className="text-left sm:text-right">
-              <span className="font-serif font-bold text-xl block">
+              <span className="font-serif font-bold text-xl text-[var(--accent-amber)] block">
                 Total Level {totalLevel}
               </span>
-              <span className="text-xs text-[var(--fresh-ink)]/70">
+              <span className="text-xs text-[var(--text-dim)]">
                 {totalXp} Accumulated XP
               </span>
             </div>
           </div>
 
-          <p className="text-xs text-[var(--fresh-ink)]/80 mt-4 leading-relaxed font-serif">
-            A living record of your four foundational pillars. Neglect allows the ink stain to bleed; consistency maintains sharp inscription.
+          <p className="text-xs text-[var(--text-dim)] mt-4 leading-relaxed font-sans">
+            A living record of your four foundational disciplines. Neglect causes creeping stat decay; consistency builds permanent power.
           </p>
         </div>
 
-        {/* 4 Attributes with Bars & Activity Lines (Section 3.11) */}
+        {/* 4 Attributes with Bars & Activity Lines */}
         <div className="space-y-4">
           {data.attributes?.map((attr: any) => {
             const attrTasks = data.tasks?.filter((t: any) => t.attributeId === attr.id) || [];
@@ -97,35 +97,35 @@ export default function CharacterPage() {
             return (
               <div
                 key={attr.id}
-                className="bg-[var(--page-bone)] text-[var(--fresh-ink)] p-6 rounded-xl parchment-shadow border border-[var(--line)]"
+                className="bg-[var(--bg-surface-1)] p-5 rounded-xl shadow-rpg-sm border border-[var(--border-subtle)]"
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2.5">
-                    <h2 className="font-serif font-bold text-xl">{attr.name}</h2>
-                    <span className="text-xs font-serif font-semibold px-2 py-0.5 rounded border border-[var(--line)] text-[var(--fresh-ink)]/80">
+                    <h2 className="font-serif font-bold text-lg text-[var(--text-headline)]">{attr.name}</h2>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] text-[var(--text-dim)]">
                       {getLevelTitle(attr.level)}
                     </span>
                   </div>
 
-                  <div className="text-xs font-serif font-bold text-[var(--brass)]">
+                  <div className="text-xs font-serif font-bold text-[var(--accent-amber)]">
                     Level {attr.level}
                   </div>
                 </div>
 
                 {/* Progress Bar */}
-                <div className="h-2 bg-[var(--page-bone-dim)] rounded-full overflow-hidden border border-[var(--line)] mb-3">
+                <div className="h-2.5 bg-[#1F2937] rounded-full overflow-hidden border border-[var(--border-subtle)] mb-3">
                   <div
-                    className="h-full bg-[var(--brass)]"
+                    className="h-full rounded-full bg-gradient-to-r from-[var(--accent-slate)] to-[var(--accent-amber)]"
                     style={{ width: `${Math.round((attr.progress || 0) * 100)}%` }}
                   />
                 </div>
 
-                {/* One line of history per attribute (Section 3.11) */}
-                <div className="flex items-center justify-between text-xs text-[var(--fresh-ink)]/70 font-sans">
+                {/* History Line */}
+                <div className="flex items-center justify-between text-xs text-[var(--text-dim)]">
                   <span>
                     +{attr.xp} XP total · {completedCount} quests completed · {attr.streak}d streak
                   </span>
-                  <span className="font-mono text-[11px] opacity-80">
+                  <span className="text-[11px] text-[var(--text-faint)]">
                     Next at {attr.xpForNextLevel} XP
                   </span>
                 </div>

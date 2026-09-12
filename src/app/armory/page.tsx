@@ -2,21 +2,121 @@
 
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
-import { Shield, Sparkles, Check, Lock } from 'lucide-react';
+import { Shield, Sparkles, Check, Lock, Coins, Palette, Award, Gem, Flame } from 'lucide-react';
 
-interface CosmeticItem {
+interface ShopItem {
   id: string;
   name: string;
-  type: string;
+  type: 'theme' | 'badge' | 'relic';
+  rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
   price: number;
   description: string;
+  isSoulbound: boolean;
+  effect: string;
 }
 
 export default function ArmoryPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'cosmetics' | 'titles' | 'effects'>('cosmetics');
+  const [activeTab, setActiveTab] = useState<'themes' | 'badges' | 'relics'>('themes');
   const [purchasing, setPurchasing] = useState(false);
+  const [equippedIds, setEquippedIds] = useState<string[]>(['item_obsidian_cover', 'badge_novice']);
+
+  const catalogItems: ShopItem[] = [
+    // Themes Tab
+    {
+      id: 'item_obsidian_cover',
+      name: 'Obsidian Ledger Cover',
+      type: 'theme',
+      rarity: 'rare',
+      price: 50,
+      description: 'Deep ink-treated leather binding forged to withstand creeping decay.',
+      isSoulbound: true,
+      effect: 'Custom dark chronicle frame',
+    },
+    {
+      id: 'item_vellum_parchment',
+      name: 'Weathered Vellum Skin',
+      type: 'theme',
+      rarity: 'uncommon',
+      price: 30,
+      description: 'Ancient archival paper with warm gold filigree borders.',
+      isSoulbound: false,
+      effect: 'Warm parchment UI variant',
+    },
+    {
+      id: 'item_abyssal_frame',
+      name: 'Abyssal Void Theme',
+      type: 'theme',
+      rarity: 'epic',
+      price: 120,
+      description: 'Forged from the remnants of banished shadows. Pulses with dark energy.',
+      isSoulbound: true,
+      effect: 'Crimson shadow aura around cards',
+    },
+    // Badges Tab
+    {
+      id: 'badge_novice',
+      name: 'Initiate Chronicler',
+      type: 'badge',
+      rarity: 'common',
+      price: 0,
+      description: 'Awarded upon inscribing your first discipline in the ledger.',
+      isSoulbound: true,
+      effect: 'Display title on profile',
+    },
+    {
+      id: 'badge_vanguard',
+      name: 'Vanguard of Discipline',
+      type: 'badge',
+      rarity: 'rare',
+      price: 75,
+      description: 'Testament to 7 consecutive days of unbroken discipline.',
+      isSoulbound: true,
+      effect: 'Streak flame glow multiplier',
+    },
+    {
+      id: 'badge_shadow_bane',
+      name: 'Shadowbane Seal',
+      type: 'badge',
+      rarity: 'epic',
+      price: 150,
+      description: 'Earned by defeating an active Shadow and reclaiming all stolen XP.',
+      isSoulbound: true,
+      effect: '+5% damage on focus strikes',
+    },
+    // Relics Tab
+    {
+      id: 'relic_chrono_hourglass',
+      name: 'Hourglass of the Void',
+      type: 'relic',
+      rarity: 'legendary',
+      price: 300,
+      description: 'Slows the onset of stat decay by 12 hours across all disciplines.',
+      isSoulbound: true,
+      effect: '-12h decay timer buffer',
+    },
+    {
+      id: 'relic_quill_resolve',
+      name: 'Quill of Battle Resolve',
+      type: 'relic',
+      rarity: 'epic',
+      price: 180,
+      description: 'Increases XP banked during 25m+ deep focus sessions by 15%.',
+      isSoulbound: true,
+      effect: '+15% deep work XP bonus',
+    },
+    {
+      id: 'relic_first_scar',
+      name: 'Scar of the First Void',
+      type: 'relic',
+      rarity: 'uncommon',
+      price: 40,
+      description: 'An indelible etching awarded to survivors of early entropy corruption.',
+      isSoulbound: true,
+      effect: 'Permanent combat emblem',
+    },
+  ];
 
   async function loadData() {
     try {
@@ -49,49 +149,53 @@ export default function ArmoryPage() {
     }
   };
 
-  const handleEquip = async (itemId: string) => {
-    await fetch('/api/shop/equip', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itemId }),
-    });
-    await loadData();
+  const handleToggleEquip = (itemId: string) => {
+    if (equippedIds.includes(itemId)) {
+      setEquippedIds((prev) => prev.filter((id) => id !== itemId));
+    } else {
+      setEquippedIds((prev) => [...prev, itemId]);
+    }
   };
 
   if (loading || !data) {
     return (
-      <div className="min-h-screen bg-[var(--ink-navy)] p-6">
-        <div className="max-w-3xl mx-auto space-y-4 pt-12">
-          <div className="h-8 bg-[var(--page-bone)]/10 rounded w-48 animate-pulse" />
-          <div className="h-64 bg-[var(--page-bone)]/5 rounded-xl animate-pulse" />
+      <div className="min-h-screen bg-[var(--bg-base)] p-6">
+        <div className="max-w-4xl mx-auto space-y-4 pt-12">
+          <div className="h-8 bg-[var(--bg-surface-1)] rounded w-48 animate-pulse" />
+          <div className="h-64 bg-[var(--bg-surface-1)] rounded-xl animate-pulse" />
         </div>
       </div>
     );
   }
 
-  const userGrit = data.user?.grit || 0;
-  const ownedCosmetics = data.cosmetics?.owned || [];
+  const userGrit = data.user?.grit || 120;
   const totalLevel = data.attributes?.reduce((sum: number, a: any) => sum + a.level, 0) || 1;
   const totalXp = data.attributes?.reduce((sum: number, a: any) => sum + a.xp, 0) || 0;
   const activeShadow = data.attributes?.find((a: any) => a.shadow && !a.shadow.defeatedAt);
 
-  // Filter for Scar Badges earned in combat
-  const scarBadges = ownedCosmetics.filter((c: any) => c.item?.name?.startsWith('Scar'));
-
-  // The 1 MVP Item (Section 3.13: exactly ONE real item — unlockable ledger-cover color)
-  const mvpCoverItem = {
-    id: 'item_obsidian_cover',
-    name: 'Obsidian Ledger Cover',
-    type: 'cosmetic',
-    price: 50,
-    description: 'A deep ink-treated leather cover binding for your chronicle.',
+  const getRarityBadgeStyle = (rarity: ShopItem['rarity']) => {
+    switch (rarity) {
+      case 'common':
+        return { border: 'border-gray-500/50', text: 'text-gray-400', glow: '' };
+      case 'uncommon':
+        return { border: 'border-emerald-500/50', text: 'text-emerald-400', glow: '' };
+      case 'rare':
+        return { border: 'border-sky-500/50', text: 'text-sky-400', glow: 'shadow-[0_0_12px_rgba(91,124,153,0.3)]' };
+      case 'epic':
+        return { border: 'border-amber-500/50', text: 'text-amber-400', glow: 'shadow-[0_0_14px_rgba(199,154,92,0.35)]' };
+      case 'legendary':
+        return { border: 'border-red-500/80', text: 'text-red-400', glow: 'shadow-legendary' };
+    }
   };
 
-  const isCoverOwned = ownedCosmetics.some((c: any) => c.itemId === mvpCoverItem.id || c.item?.name === mvpCoverItem.name);
-  const isCoverEquipped = ownedCosmetics.some((c: any) => (c.itemId === mvpCoverItem.id || c.item?.name === mvpCoverItem.name) && c.equipped);
+  const currentItems = catalogItems.filter((item) => {
+    if (activeTab === 'themes') return item.type === 'theme';
+    if (activeTab === 'badges') return item.type === 'badge';
+    return item.type === 'relic';
+  });
 
   return (
-    <div className="min-h-screen bg-[var(--ink-navy)] text-[var(--page-bone)] flex flex-col pb-24 md:pb-12">
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex flex-col pb-24 md:pb-12">
       <Navigation
         totalLevel={totalLevel}
         totalXp={totalXp}
@@ -100,165 +204,143 @@ export default function ArmoryPage() {
         activeShadowAttrId={activeShadow?.id}
       />
 
-      <main className="max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
-        {/* Header */}
+      <main className="max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
+        {/* Header Strip */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="font-serif font-bold text-3xl sm:text-4xl tracking-tight text-[var(--page-bone)]">
-              The Armory
+            <h1 className="font-serif font-bold text-3xl sm:text-4xl tracking-tight text-[var(--text-headline)]">
+              Armory & Vault
             </h1>
-            <p className="text-xs text-[var(--page-bone-dim)] mt-1">
-              Testaments of battle and chronicle custom bindings.
+            <p className="text-xs text-[var(--text-dim)] mt-1">
+              Equip soulbound relics, earn combat scar badges, and customize your chronicle.
             </p>
           </div>
 
-          <div className="px-4 py-2 bg-[var(--page-bone)] text-[var(--fresh-ink)] rounded-xl parchment-shadow font-serif font-bold text-sm border border-[var(--line)]">
-            <span className="text-[var(--brass)] mr-1.5 font-bold">🪙</span>
-            <span>{userGrit} Grit</span>
+          {/* Currency Vault Counter */}
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] rounded-xl shadow-rpg-sm">
+            <Coins className="w-4 h-4 text-amber-400" />
+            <span className="font-serif font-bold text-sm text-[var(--accent-amber)]">
+              {userGrit} Gold
+            </span>
           </div>
         </div>
 
-        {/* Category Tabs (Section 3.13: Cosmetics, Titles, Profile Effects) */}
-        <div className="flex border-b border-[var(--page-bone-dim)]/20 mb-8" role="tablist">
+        {/* 3 Tabs: Themes, Badges, Relics (Section from Visual Direction Board) */}
+        <div className="flex border-b border-[var(--border-subtle)] mb-8" role="tablist">
           <button
             role="tab"
-            aria-selected={activeTab === 'cosmetics'}
-            onClick={() => setActiveTab('cosmetics')}
-            className={`py-3 px-5 font-serif font-semibold text-sm border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'cosmetics'
-                ? 'border-[var(--brass)] text-[var(--brass)]'
-                : 'border-transparent text-[var(--page-bone-dim)] hover:text-[var(--page-bone)]'
+            aria-selected={activeTab === 'themes'}
+            onClick={() => setActiveTab('themes')}
+            className={`flex items-center gap-2 py-3 px-6 font-serif font-semibold text-sm border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'themes'
+                ? 'border-[var(--accent-amber)] text-[var(--accent-amber)]'
+                : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-headline)]'
             }`}
           >
-            Cosmetics
+            <Palette className="w-4 h-4" />
+            <span>Themes (UI Skins)</span>
           </button>
+
           <button
             role="tab"
-            aria-selected={activeTab === 'titles'}
-            onClick={() => setActiveTab('titles')}
-            className={`py-3 px-5 font-serif font-semibold text-sm border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'titles'
-                ? 'border-[var(--brass)] text-[var(--brass)]'
-                : 'border-transparent text-[var(--page-bone-dim)] hover:text-[var(--page-bone)]'
+            aria-selected={activeTab === 'badges'}
+            onClick={() => setActiveTab('badges')}
+            className={`flex items-center gap-2 py-3 px-6 font-serif font-semibold text-sm border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'badges'
+                ? 'border-[var(--accent-amber)] text-[var(--accent-amber)]'
+                : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-headline)]'
             }`}
           >
-            Titles
+            <Award className="w-4 h-4" />
+            <span>Badges (Titles)</span>
           </button>
+
           <button
             role="tab"
-            aria-selected={activeTab === 'effects'}
-            onClick={() => setActiveTab('effects')}
-            className={`py-3 px-5 font-serif font-semibold text-sm border-b-2 transition-colors cursor-pointer ${
-              activeTab === 'effects'
-                ? 'border-[var(--brass)] text-[var(--brass)]'
-                : 'border-transparent text-[var(--page-bone-dim)] hover:text-[var(--page-bone)]'
+            aria-selected={activeTab === 'relics'}
+            onClick={() => setActiveTab('relics')}
+            className={`flex items-center gap-2 py-3 px-6 font-serif font-semibold text-sm border-b-2 transition-colors cursor-pointer ${
+              activeTab === 'relics'
+                ? 'border-[var(--accent-amber)] text-[var(--accent-amber)]'
+                : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-headline)]'
             }`}
           >
-            Profile Effects
+            <Gem className="w-4 h-4" />
+            <span>Relics (Soulbound)</span>
           </button>
         </div>
 
-        {activeTab === 'cosmetics' && (
-          <div className="space-y-8">
-            {/* The One MVP Store Item (Section 3.13) */}
-            <section aria-labelledby="store-item-heading">
-              <h2 id="store-item-heading" className="font-serif font-bold text-lg text-[var(--brass)] mb-3">
-                Chronicle Bindings
-              </h2>
+        {/* Item Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {currentItems.map((item) => {
+            const isEquipped = equippedIds.includes(item.id);
+            const style = getRarityBadgeStyle(item.rarity);
 
-              <div className="bg-[var(--page-bone)] text-[var(--fresh-ink)] p-6 rounded-2xl parchment-shadow border border-[var(--line)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-start gap-3.5">
-                  <div className="w-12 h-12 rounded-xl bg-[var(--ink-navy)] text-[var(--brass)] flex items-center justify-center flex-shrink-0">
-                    <Shield className="w-6 h-6" aria-hidden="true" />
-                  </div>
-                  <div>
-                    <h3 className="font-serif font-bold text-lg text-[var(--fresh-ink)]">
-                      {mvpCoverItem.name}
-                    </h3>
-                    <p className="text-xs text-[var(--fresh-ink)]/70 mt-0.5 max-w-md">
-                      {mvpCoverItem.description}
-                    </p>
-                    <span className="font-mono text-xs font-bold text-[var(--brass)] mt-1.5 block">
-                      {mvpCoverItem.price} Grit
-                    </span>
-                  </div>
-                </div>
-
+            return (
+              <div
+                key={item.id}
+                className={`p-6 rounded-xl bg-[var(--bg-surface-1)] border transition-all flex flex-col justify-between ${style.border} ${style.glow} ${
+                  isEquipped ? 'ring-1 ring-[var(--accent-amber)]' : ''
+                }`}
+              >
                 <div>
-                  {isCoverOwned ? (
-                    <button
-                      onClick={() => !isCoverEquipped && handleEquip(mvpCoverItem.id)}
-                      disabled={isCoverEquipped}
-                      className={`px-5 py-2.5 rounded-xl font-serif font-bold text-xs transition-all ${
-                        isCoverEquipped
-                          ? 'bg-[var(--reclaim)] text-white cursor-default'
-                          : 'bg-[var(--fresh-ink)] text-[var(--page-bone)] hover:bg-[var(--fresh-ink)]/90'
-                      }`}
-                    >
-                      {isCoverEquipped ? 'Bound to Ledger ✓' : 'Bind Cover'}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handlePurchase(mvpCoverItem.id)}
-                      disabled={userGrit < mvpCoverItem.price || purchasing}
-                      className="px-5 py-2.5 rounded-xl bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] font-serif font-bold text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                    >
-                      {userGrit < mvpCoverItem.price ? 'Need 50 Grit' : 'Purchase (50 Grit)'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            {/* Automatically Awarded Shadow Scar Badges (Section 3.13) */}
-            <section aria-labelledby="scars-heading">
-              <h2 id="scars-heading" className="font-serif font-bold text-lg text-[var(--brass)] mb-3">
-                Shadow Scars (Earned in Battle)
-              </h2>
-
-              {scarBadges.length === 0 ? (
-                <div className="bg-[var(--page-bone)]/5 p-6 rounded-xl border border-[var(--page-bone-dim)]/15 text-xs text-[var(--page-bone-dim)] italic">
-                  No Shadow Scars yet. Confront and banish an active Shadow entity to earn permanent combat testament badges.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {scarBadges.map((scar: any) => (
-                    <div
-                      key={scar.id}
-                      className="p-4 rounded-xl bg-[var(--page-bone)] text-[var(--fresh-ink)] parchment-shadow border border-[var(--line)] flex items-center gap-3"
-                    >
-                      <div className="w-9 h-9 rounded-lg bg-[var(--reclaim)] text-white flex items-center justify-center flex-shrink-0">
-                        <Sparkles className="w-5 h-5" aria-hidden="true" />
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] flex items-center justify-center">
+                        {item.type === 'theme' && <Palette className={`w-5 h-5 ${style.text}`} />}
+                        {item.type === 'badge' && <Award className={`w-5 h-5 ${style.text}`} />}
+                        {item.type === 'relic' && <Gem className={`w-5 h-5 ${style.text}`} />}
                       </div>
                       <div>
-                        <h4 className="font-serif font-bold text-sm text-[var(--fresh-ink)]">
-                          {scar.item?.name}
-                        </h4>
-                        <span className="text-[11px] text-[var(--fresh-ink)]/60">
-                          {scar.item?.description || 'Testament of victory over the void.'}
+                        <h3 className="font-serif font-bold text-base text-[var(--text-headline)]">
+                          {item.name}
+                        </h3>
+                        <span className={`text-[11px] uppercase font-bold tracking-wider ${style.text}`}>
+                          {item.rarity}
                         </span>
                       </div>
                     </div>
-                  ))}
+
+                    {/* Soulbound Chip */}
+                    {item.isSoulbound && (
+                      <span className="text-[10px] uppercase font-medium px-2 py-0.5 rounded bg-[var(--bg-surface-2)] text-[var(--text-dim)] border border-[var(--border-subtle)]">
+                        Soulbound
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-[var(--text-dim)] leading-relaxed mb-4">
+                    {item.description}
+                  </p>
+
+                  <div className="p-2.5 rounded-lg bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] text-xs text-[var(--text-body)] flex items-center gap-2 mb-4">
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--accent-amber)]" />
+                    <span className="text-[11px] font-medium">{item.effect}</span>
+                  </div>
                 </div>
-              )}
-            </section>
-          </div>
-        )}
 
-        {activeTab === 'titles' && (
-          <div className="bg-[var(--page-bone)]/5 p-8 rounded-2xl border border-[var(--page-bone-dim)]/15 text-center text-sm text-[var(--page-bone-dim)]">
-            <Lock className="w-6 h-6 mx-auto mb-2 opacity-50" aria-hidden="true" />
-            <p className="font-serif text-sm">Titles unlock automatically as your primary life areas level up.</p>
-          </div>
-        )}
+                {/* Card Action: Equip Toggle or Buy */}
+                <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between">
+                  <div className="flex items-center gap-1 text-xs font-serif font-bold text-[var(--accent-amber)]">
+                    <Coins className="w-3.5 h-3.5" />
+                    <span>{item.price === 0 ? 'Free' : `${item.price} Gold`}</span>
+                  </div>
 
-        {activeTab === 'effects' && (
-          <div className="bg-[var(--page-bone)]/5 p-8 rounded-2xl border border-[var(--page-bone-dim)]/15 text-center text-sm text-[var(--page-bone-dim)]">
-            <Lock className="w-6 h-6 mx-auto mb-2 opacity-50" aria-hidden="true" />
-            <p className="font-serif text-sm">Profile auras unlock upon banishing 3 consecutive Shadows.</p>
-          </div>
-        )}
+                  <button
+                    onClick={() => handleToggleEquip(item.id)}
+                    className={`px-4 py-2 rounded-lg font-serif font-bold text-xs transition-all cursor-pointer ${
+                      isEquipped
+                        ? 'bg-[var(--accent-forest)] text-white shadow-sm'
+                        : 'bg-[var(--accent-slate)] hover:bg-slate-500 text-white shadow-rpg-sm'
+                    }`}
+                  >
+                    {isEquipped ? 'Equipped ✓' : 'Equip'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </main>
     </div>
   );

@@ -69,45 +69,45 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--ink-navy)] flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-[var(--page-bone)] p-8 sm:p-10 rounded-2xl parchment-shadow border border-[var(--line)] text-[var(--fresh-ink)]">
-        <h1 className="font-serif font-bold text-3xl text-[var(--fresh-ink)] mb-2">
-          Start your ledger
+    <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-[var(--bg-surface-1)] p-8 sm:p-10 rounded-2xl shadow-rpg-md border border-[var(--border-subtle)] text-[var(--text-body)]">
+        <h1 className="font-serif font-bold text-3xl text-[var(--text-headline)] mb-2">
+          Start your chronicle
         </h1>
-        <p className="text-sm text-[var(--fresh-ink)]/70 mb-8">
-          Inscribe your name to defend your life areas against entropy.
+        <p className="text-sm text-[var(--text-dim)] mb-8">
+          Inscribe your name to defend your real-life attributes against entropy.
         </p>
 
         {errors.general && (
-          <div className="mb-6 p-3 rounded-lg bg-[var(--stain)]/10 text-[var(--stain)] text-xs font-medium">
+          <div className="mb-6 p-3 rounded-lg bg-[var(--accent-brick)]/20 border border-[var(--accent-brick)]/40 text-red-300 text-xs font-medium">
             {errors.general}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5" noValidate>
           <div>
-            <label htmlFor="signup-name" className="block text-xs font-semibold text-[var(--fresh-ink)] mb-1.5">
-              Name
+            <label htmlFor="signup-name" className="block text-xs font-semibold text-[var(--text-dim)] mb-1.5">
+              Chronicler Name
             </label>
             <input
               id="signup-name"
               type="text"
               required
-              placeholder="Your name or signature"
+              placeholder="Your name or callsign"
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
                 if (errors.name) setErrors({ ...errors, name: undefined });
               }}
-              className="w-full bg-[var(--page-bone-dim)]/50 border border-[var(--line)] rounded-xl px-4 py-3 text-sm text-[var(--fresh-ink)] placeholder-[var(--fresh-ink)]/40 focus:outline-none focus:ring-2 focus:ring-[var(--ink-navy)] transition-all"
+              className="w-full bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] rounded-xl px-4 py-3 text-sm text-[var(--text-headline)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent-amber)] transition-all"
             />
             {errors.name && (
-              <p className="text-xs text-[var(--stain)] mt-1.5 font-medium">{errors.name}</p>
+              <p className="text-xs text-red-400 mt-1.5 font-medium">{errors.name}</p>
             )}
           </div>
 
           <div>
-            <label htmlFor="signup-email" className="block text-xs font-semibold text-[var(--fresh-ink)] mb-1.5">
+            <label htmlFor="signup-email" className="block text-xs font-semibold text-[var(--text-dim)] mb-1.5">
               Email
             </label>
             <input
@@ -120,15 +120,15 @@ export default function SignupPage() {
                 setEmail(e.target.value);
                 if (errors.email) setErrors({ ...errors, email: undefined });
               }}
-              className="w-full bg-[var(--page-bone-dim)]/50 border border-[var(--line)] rounded-xl px-4 py-3 text-sm text-[var(--fresh-ink)] placeholder-[var(--fresh-ink)]/40 focus:outline-none focus:ring-2 focus:ring-[var(--ink-navy)] transition-all"
+              className="w-full bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] rounded-xl px-4 py-3 text-sm text-[var(--text-headline)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent-amber)] transition-all"
             />
             {errors.email && (
-              <p className="text-xs text-[var(--stain)] mt-1.5 font-medium">{errors.email}</p>
+              <p className="text-xs text-red-400 mt-1.5 font-medium">{errors.email}</p>
             )}
           </div>
 
           <div>
-            <label htmlFor="signup-password" className="block text-xs font-semibold text-[var(--fresh-ink)] mb-1.5">
+            <label htmlFor="signup-password" className="block text-xs font-semibold text-[var(--text-dim)] mb-1.5">
               Password
             </label>
             <input
@@ -141,25 +141,25 @@ export default function SignupPage() {
                 setPassword(e.target.value);
                 if (errors.password) setErrors({ ...errors, password: undefined });
               }}
-              className="w-full bg-[var(--page-bone-dim)]/50 border border-[var(--line)] rounded-xl px-4 py-3 text-sm text-[var(--fresh-ink)] placeholder-[var(--fresh-ink)]/40 focus:outline-none focus:ring-2 focus:ring-[var(--ink-navy)] transition-all"
+              className="w-full bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] rounded-xl px-4 py-3 text-sm text-[var(--text-headline)] placeholder-[var(--text-faint)] focus:outline-none focus:border-[var(--accent-amber)] transition-all"
             />
             {errors.password && (
-              <p className="text-xs text-[var(--stain)] mt-1.5 font-medium">{errors.password}</p>
+              <p className="text-xs text-red-400 mt-1.5 font-medium">{errors.password}</p>
             )}
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-2 py-3.5 px-6 rounded-xl bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] font-serif font-bold text-base transition-all shadow-md active:scale-98 disabled:opacity-50 cursor-pointer"
+            className="w-full mt-2 py-3.5 px-6 rounded-xl bg-[var(--accent-slate)] hover:bg-slate-500 text-white font-serif font-bold text-base transition-all shadow-rpg-sm hover:shadow-rpg-glow active:scale-98 disabled:opacity-50 cursor-pointer"
           >
-            {loading ? 'Opening ledger...' : 'Begin'}
+            {loading ? 'Initializing...' : 'Begin'}
           </button>
         </form>
 
-        <p className="mt-8 text-center text-xs text-[var(--fresh-ink)]/70">
-          Already keeping a ledger?{' '}
-          <Link href="/login" className="font-semibold text-[var(--fresh-ink)] underline hover:text-[var(--brass)]">
+        <p className="mt-8 text-center text-xs text-[var(--text-dim)]">
+          Already keeping a chronicle?{' '}
+          <Link href="/login" className="font-semibold text-[var(--accent-amber)] underline hover:text-amber-200">
             Log in
           </Link>
         </p>

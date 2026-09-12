@@ -1,21 +1,47 @@
 @import "tailwindcss";
 
 :root {
-  --ink-navy: #1C2333;      /* app background */
-  --page-bone: #E7E1D3;     /* ledger card/page surface */
-  --page-bone-dim: #DCD5C4;
-  --brass: #A87C3F;         /* positive: currency, level, healthy progress */
-  --brass-bright: #C79A55;
-  --stain: #2E2A33;         /* Shadow / decay color */
-  --fresh-ink: #23324A;     /* text on page-bone */
-  --reclaim: #6B8F71;       /* rare: only for "reclaimed on defeat" moments */
-  --line: #C9C0AA;
+  /* Dark Fantasy Base & Surfaces (WANDR & Crownfall guidance: dark gray, not pure black #000) */
+  --bg-base: #0B0F14;
+  --bg-surface-1: #151E2A;
+  --bg-surface-2: #1A2433;
+  --border-subtle: #243042;
+  --border-hover: #33445C;
+  --border-glow: rgba(91, 124, 153, 0.4);
+
+  /* Accents */
+  --accent-slate: #5B7C99;     /* Slate-blue primary */
+  --accent-amber: #C79A5C;     /* Muted amber secondary / currency */
+  --accent-forest: #3A7F58;    /* Forest green success / safe */
+  --accent-brick: #A63F3F;     /* Brick red danger / decay / boss */
+
+  /* Text (Off-white to eliminate halation) */
+  --text-headline: #F3F4F6;
+  --text-body: #E5E7EB;
+  --text-dim: #94A3B8;
+  --text-faint: #64748B;
+
+  /* Rarity System */
+  --rarity-common: #6B7280;
+  --rarity-uncommon: #3A7F58;
+  --rarity-rare: #5B7C99;
+  --rarity-epic: #C79A5C;
+  --rarity-legendary: #A63F3F;
+
+  /* Compatibility mappings */
+  --ink-navy: #0B0F14;
+  --page-bone: #151E2A;
+  --brass: #C79A5C;
+  --brass-bright: #E2B678;
+  --fresh-ink: #F3F4F6;
+  --stain: #A63F3F;
+  --reclaim: #3A7F58;
 }
 
 /* Base Body Styling */
 body {
-  background-color: var(--ink-navy);
-  color: var(--page-bone);
+  background-color: var(--bg-base);
+  color: var(--text-body);
   font-family: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
   margin: 0;
@@ -23,129 +49,94 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Headings and Stamps - Fraunces / Serif */
+/* Headings and Fantasy Display - Fraunces / High-contrast display */
 h1, h2, h3, h4, .font-serif, .font-heading {
   font-family: "Fraunces", Georgia, Cambria, "Times New Roman", serif;
   font-feature-settings: "liga" 1, "kern" 1;
 }
 
-/* Body / UI Chrome - Public Sans */
+/* Body / UI Chrome - Clean Geometric Sans */
 p, span, button, input, label, select, .font-sans {
   font-family: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-/* Torn Deckle Bottom Edge */
-.ledger-deckle-edge {
-  clip-path: polygon(
-    0% 0%,
-    100% 0%,
-    100% calc(100% - 10px),
-    98% calc(100% - 7px),
-    95% calc(100% - 12px),
-    92% calc(100% - 8px),
-    88% calc(100% - 11px),
-    85% calc(100% - 6px),
-    80% calc(100% - 12px),
-    75% calc(100% - 7px),
-    70% calc(100% - 10px),
-    65% calc(100% - 6px),
-    60% calc(100% - 12px),
-    55% calc(100% - 8px),
-    50% calc(100% - 11px),
-    45% calc(100% - 7px),
-    40% calc(100% - 12px),
-    35% calc(100% - 8px),
-    30% calc(100% - 11px),
-    25% calc(100% - 6px),
-    20% calc(100% - 12px),
-    15% calc(100% - 7px),
-    10% calc(100% - 10px),
-    5% calc(100% - 7px),
-    0% calc(100% - 10px)
-  );
+/* Layered Elevation Shadows */
+.shadow-rpg-sm {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* Ink Bleed Shadow Animations */
-@keyframes ink-spread {
+.shadow-rpg-md {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.shadow-rpg-glow {
+  box-shadow: 0 0 16px rgba(91, 124, 153, 0.25), 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.shadow-legendary {
+  box-shadow: 0 0 20px rgba(166, 63, 63, 0.4), 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Tactile floating animation for +XP and +Gold pops */
+@keyframes float-up-fade {
   0% {
-    opacity: 0.2;
-    transform: scale(0.98);
-    filter: blur(4px);
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
   50% {
-    opacity: 0.75;
-    transform: scale(1.01);
-    filter: blur(2px);
-  }
-  100% {
     opacity: 0.9;
-    transform: scale(1);
-    filter: blur(0px);
-  }
-}
-
-@keyframes ink-lift {
-  0% {
-    opacity: 0.9;
-    transform: scale(1);
+    transform: translateY(-16px) scale(1.1);
   }
   100% {
     opacity: 0;
-    transform: scale(0.95);
-    filter: blur(6px);
+    transform: translateY(-28px) scale(1);
   }
 }
 
-.animate-ink-spread {
-  animation: ink-spread 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+.animate-float-up {
+  animation: float-up-fade 1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
-.animate-ink-lift {
-  animation: ink-lift 0.8s ease-out forwards;
+/* Boss stagger animation */
+@keyframes boss-stagger {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px) rotate(-0.5deg); }
+  40% { transform: translateX(4px) rotate(0.5deg); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
 }
 
-/* Parchment Texture & Subtle Inked Shadows */
-.parchment-shadow {
-  box-shadow: 
-    0 1px 3px rgba(0, 0, 0, 0.3),
-    0 8px 24px -4px rgba(10, 14, 24, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+.animate-boss-stagger {
+  animation: boss-stagger 0.4s ease-in-out;
 }
 
-.stained-shadow {
-  box-shadow: 
-    0 1px 3px rgba(0, 0, 0, 0.5),
-    0 8px 30px -4px rgba(46, 42, 51, 0.6),
-    inset 0 0 15px rgba(30, 27, 34, 0.3);
-}
-
-/* Custom Inked Scrollbar */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 7px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--ink-navy);
+  background: var(--bg-base);
 }
 ::-webkit-scrollbar-thumb {
-  background: #2D374D;
+  background: var(--border-subtle);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--brass);
+  background: var(--accent-slate);
 }
 
-/* Subtle Brass Focus Ring (Mandatory Accessibility) */
+/* Focus Ring (Accessibility) */
 *:focus-visible {
-  outline: 2px solid var(--brass) !important;
+  outline: 2px solid var(--accent-amber) !important;
   outline-offset: 2px !important;
 }
 
 ::selection {
-  background-color: var(--brass);
-  color: var(--ink-navy);
+  background-color: var(--accent-slate);
+  color: #FFFFFF;
 }
 
-/* Reduced Motion Support (Mandatory Accessibility) */
+/* Reduced Motion Support */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
     animation-duration: 0.01ms !important;

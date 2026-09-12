@@ -127,24 +127,24 @@ export default function ConfrontShadowPage({
   const isFinalSealStep = shadow ? shadow.sealProgress >= shadow.stepsNeeded - 1 : false;
 
   return (
-    <div className="min-h-screen bg-[var(--ink-navy)] text-[var(--page-bone)] flex flex-col justify-between p-6 md:p-12 relative overflow-hidden">
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex flex-col justify-between p-6 md:p-12 relative overflow-hidden">
       {/* Top Bar */}
       <div className="relative z-20 max-w-4xl w-full mx-auto flex items-center justify-between">
         <Link
           href={`/attribute/${attribute.id}`}
-          className="inline-flex items-center gap-2 text-xs text-[var(--page-bone-dim)] hover:text-[var(--page-bone)] font-medium transition-colors"
+          className="inline-flex items-center gap-2 text-xs text-[var(--text-dim)] hover:text-[var(--text-headline)] font-medium transition-colors"
         >
           <ArrowLeft className="w-4 h-4" aria-hidden="true" />
           <span>Return to Quest Board</span>
         </Link>
-        <span className="font-serif text-xs text-[var(--brass)] font-semibold tracking-wider uppercase">
-          Signature Confrontation
+        <span className="font-serif text-xs text-[var(--accent-amber)] font-semibold tracking-wider uppercase">
+          Signature Confrontation Arena
         </span>
       </div>
 
-      {/* Main Full-Screen Confront Arena (Section 3.8) */}
+      {/* Main Full-Screen Confront Arena */}
       <div className="relative z-10 max-w-2xl w-full mx-auto my-auto py-8 text-center">
-        {/* Ink Stain Visual with feTurbulence Filter */}
+        {/* Ink Stain / Shadow Visual */}
         <div className="relative w-48 h-48 sm:w-64 sm:h-64 mx-auto mb-8 flex items-center justify-center">
           <motion.div
             animate={
@@ -168,12 +168,12 @@ export default function ConfrontShadowPage({
                 <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="4" result="noise" />
                 <feDisplacementMap in="SourceGraphic" in2="noise" scale="25" xChannelSelector="R" yChannelSelector="G" />
               </filter>
-              <circle cx="100" cy="100" r="80" fill="var(--stain)" filter="url(#confront-turb)" />
+              <circle cx="100" cy="100" r="80" fill="var(--accent-brick)" filter="url(#confront-turb)" opacity="0.8" />
             </svg>
           </motion.div>
 
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <Skull className="w-12 h-12 text-red-300/80 mb-1" aria-hidden="true" />
+            <Skull className="w-12 h-12 text-red-300 mb-1 drop-shadow" aria-hidden="true" />
             <span className="font-serif font-bold text-xs uppercase tracking-widest text-red-200">
               {shadow ? `HP ${shadow.hp}` : 'Shadow'}
             </span>
@@ -181,28 +181,28 @@ export default function ConfrontShadowPage({
         </div>
 
         {/* Shadow Name & Origin Note */}
-        <h1 className="font-serif font-bold text-4xl sm:text-5xl text-[var(--page-bone)] mb-3 tracking-tight">
+        <h1 className="font-serif font-bold text-4xl sm:text-5xl text-[var(--text-headline)] mb-3 tracking-tight">
           The Shadow of {attribute.name}
         </h1>
 
-        <p className="text-sm text-[var(--page-bone-dim)] italic font-serif max-w-lg mx-auto mb-8 leading-relaxed">
-          "{originStory}"
+        <p className="text-sm text-[var(--text-dim)] italic font-serif max-w-lg mx-auto mb-8 leading-relaxed">
+          &ldquo;{originStory}&rdquo;
         </p>
 
-        {/* Real-World Action Card with Seal Progress */}
-        <div className="bg-[var(--page-bone)] text-[var(--fresh-ink)] p-6 sm:p-8 rounded-2xl parchment-shadow border border-[var(--line)] text-left mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--line)]">
+        {/* Action Card with Seal Progress */}
+        <div className="bg-[var(--bg-surface-1)] p-6 sm:p-8 rounded-2xl shadow-rpg-md border border-[var(--border-subtle)] text-left mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--border-subtle)]">
             <div>
-              <span className="text-xs font-serif font-bold uppercase tracking-wider text-[var(--brass)] block mb-1">
-                Confrontation Quest
+              <span className="text-xs font-serif font-bold uppercase tracking-wider text-[var(--accent-amber)] block mb-1">
+                Confrontation Objective
               </span>
-              <h3 className="font-serif font-bold text-xl">{firstTaskTitle}</h3>
+              <h3 className="font-serif font-bold text-xl text-[var(--text-headline)]">{firstTaskTitle}</h3>
             </div>
 
             <div className="text-left sm:text-right">
-              <span className="text-xs text-[var(--fresh-ink)]/70 block">Damage Preview</span>
-              <span className="font-serif font-bold text-sm text-[var(--brass)]">
-                +1 Seal Notch · 25% HP Reduction
+              <span className="text-xs text-[var(--text-faint)] block">Banishment Power</span>
+              <span className="font-serif font-bold text-sm text-[var(--accent-amber)]">
+                +1 Seal Notch · HP Depletion
               </span>
             </div>
           </div>
@@ -210,7 +210,7 @@ export default function ConfrontShadowPage({
           {/* Seal Steps Row */}
           <div className="mt-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-semibold">Banishment Seal:</span>
+              <span className="text-xs font-semibold text-[var(--text-dim)]">Banishment Seal:</span>
               <div className="flex items-center gap-2">
                 {Array.from({ length: shadow?.stepsNeeded || 3 }).map((_, idx) => {
                   const isFilled = shadow ? idx < shadow.sealProgress : false;
@@ -219,8 +219,8 @@ export default function ConfrontShadowPage({
                       key={idx}
                       className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
                         isFilled
-                          ? 'bg-[var(--reclaim)] border-[var(--reclaim)] text-white'
-                          : 'border-[var(--line)] bg-[var(--page-bone-dim)]/50'
+                          ? 'bg-[var(--accent-forest)] border-[var(--accent-forest)] text-white shadow-[0_0_8px_rgba(58,127,88,0.7)]'
+                          : 'border-[var(--border-subtle)] bg-[var(--bg-surface-2)]'
                       }`}
                     >
                       {isFilled && <Check className="w-3 h-3" aria-hidden="true" />}
@@ -230,7 +230,7 @@ export default function ConfrontShadowPage({
               </div>
             </div>
 
-            <span className="font-mono text-xs font-bold text-[var(--brass)]">
+            <span className="font-mono text-xs font-bold text-[var(--accent-amber)]">
               {shadow ? `${shadow.sealProgress}/${shadow.stepsNeeded}` : '0/3'}
             </span>
           </div>
@@ -240,47 +240,47 @@ export default function ConfrontShadowPage({
         {!isDefeated ? (
           <button
             onClick={handleStartConfrontSession}
-            className="w-full sm:w-auto px-10 py-4 rounded-xl bg-[var(--brass)] hover:bg-[var(--brass-bright)] text-[var(--ink-navy)] font-serif font-bold text-base transition-all shadow-lg active:scale-98 cursor-pointer"
+            className="w-full sm:w-auto px-10 py-4 rounded-xl bg-[var(--accent-slate)] hover:bg-slate-500 text-white font-serif font-bold text-base transition-all shadow-rpg-md hover:shadow-rpg-glow active:scale-98 cursor-pointer"
           >
-            Begin — Start Focus Session
+            Enter Focus Arena
           </button>
         ) : (
-          /* Full Defeat Sequence (Intensity 10/10) */
+          /* Defeat Sequence */
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.6 }}
-            className="p-8 rounded-2xl bg-[var(--page-bone)] text-[var(--fresh-ink)] parchment-shadow border border-[var(--reclaim)]"
+            className="p-8 rounded-2xl bg-[var(--bg-surface-1)] shadow-rpg-md border border-[var(--accent-forest)]"
           >
-            <div className="w-12 h-12 rounded-full bg-[var(--reclaim)] text-white flex items-center justify-center mx-auto mb-3 shadow-md">
+            <div className="w-12 h-12 rounded-full bg-[var(--accent-forest)] text-white flex items-center justify-center mx-auto mb-3 shadow-md">
               <Sparkles className="w-6 h-6" aria-hidden="true" />
             </div>
 
-            <h2 className="font-serif font-bold text-2xl text-[var(--fresh-ink)] mb-1">
-              Shadow defeated. You reclaimed your potential.
+            <h2 className="font-serif font-bold text-2xl text-[var(--text-headline)] mb-1">
+              Shadow defeated. Potential reclaimed.
             </h2>
 
-            <p className="text-base font-serif font-bold text-[var(--reclaim)] mb-2">
+            <p className="text-base font-serif font-bold text-emerald-400 mb-2">
               +{reclaimedAmount} XP Restored to {attribute.name}
             </p>
 
-            <p className="text-xs text-[var(--fresh-ink)]/70 mb-6 max-w-md mx-auto">
-              The ink stain lifts clean from your chronicle. Permanent "Scar of {attribute.name}" badge awarded to your Armory. +10% Resolve Boost active for 48 hours.
+            <p className="text-xs text-[var(--text-dim)] mb-6 max-w-md mx-auto">
+              The shadow has been banished from your chronicle. Permanent &ldquo;Scar of {attribute.name}&rdquo; badge awarded to your Armory. +10% Resolve Boost active for 48 hours.
             </p>
 
             <Link
               href="/dashboard"
-              className="inline-flex items-center gap-2 px-8 py-3 rounded-xl bg-[var(--brass)] text-[var(--ink-navy)] font-serif font-bold text-sm shadow transition-colors"
+              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-[var(--accent-amber)] hover:bg-amber-300 text-[var(--bg-base)] font-serif font-bold text-sm shadow transition-colors"
             >
-              <span>Return to Inked Chronicle</span>
+              <span>Return to Chronicle</span>
               <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </Link>
           </motion.div>
         )}
       </div>
 
-      <div className="relative z-10 max-w-4xl w-full mx-auto text-center text-xs text-[var(--page-bone-dim)]/50">
-        Stay active during the focus session to bank heartbeats and break the seal.
+      <div className="relative z-10 max-w-4xl w-full mx-auto text-center text-xs text-[var(--text-faint)]">
+        Complete verified focus sessions to strike down the shadow and break the seal.
       </div>
     </div>
   );

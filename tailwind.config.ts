@@ -9,10 +9,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: 'var(--bg-primary)',
+        background: 'var(--bg-base)',
+        'surface-1': 'var(--bg-surface-1)',
+        'surface-2': 'var(--bg-surface-2)',
+        'border-subtle': 'var(--border-subtle)',
+        'border-hover': 'var(--border-hover)',
+        'slate-accent': 'var(--accent-slate)',
+        'amber-accent': 'var(--accent-amber)',
+        'forest-accent': 'var(--accent-forest)',
+        'brick-accent': 'var(--accent-brick)',
+        rarity: {
+          common: 'var(--rarity-common)',
+          uncommon: 'var(--rarity-uncommon)',
+          rare: 'var(--rarity-rare)',
+          epic: 'var(--rarity-epic)',
+          legendary: 'var(--rarity-legendary)',
+        },
         accent: {
-          primary: 'var(--accent-primary)',
-          secondary: 'var(--accent-secondary)',
+          primary: 'var(--accent-slate)',
+          secondary: 'var(--accent-amber)',
         }
       },
       animation: {
