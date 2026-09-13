@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 import { evaluateAdaptiveArc, UserProgressionHistory } from '@/lib/adaptive-arc';
 import { getDecayStatus } from '@/lib/game-engine';
 
@@ -19,32 +18,35 @@ export async function POST(request: Request) {
       primaryPath: 'ARTISAN' as const,
     };
 
-    const userData = await prisma.user.findUnique({
-      where: { id: user.id },
-      include: {
-        attributes: true,
-        completions: {
-          orderBy: { completedAt: 'desc' },
-          take: 10,
-          include: { task: true },
-        },
-      },
-    });
+    const supabase = getSupabaseAdmin();
 
-    const attributes = (userData?.attributes || []).map((a) => ({
+    const [attrRes, compRes] = await Promise.all([
+      supabase.from('Attribute').select('*').eq('userId', user.id),
+      supabase
+        .from('CompletionLog')
+        .select('*, task:Task(title)')
+        .eq('userId', user.id)
+        .order('completedAt', { ascending: false })
+        .limit(10),
+    ]);
+
+    const rawAttributes = attrRes.data || [];
+    const rawCompletions = compRes.data || [];
+
+    const attributes = rawAttributes.map((a: any) => ({
       name: a.name,
       xp: a.xp,
       level: a.level,
       streak: a.streak,
-      decayStatus: getDecayStatus(a.lastActivityAt),
+      decayStatus: getDecayStatus(new Date(a.lastActivityAt)),
     }));
 
-    const completedQuests = (userData?.completions || []).map((c) => ({
+    const completedQuests = rawCompletions.map((c: any) => ({
       title: c.task?.title || 'Completed Quest',
-      completedAt: c.completedAt.toISOString(),
+      completedAt: c.completedAt ? new Date(c.completedAt).toISOString() : new Date().toISOString(),
     }));
 
-    const totalCompletions = userData?.completions.length || 0;
+    const totalCompletions = rawCompletions.length;
 
     const history: UserProgressionHistory = {
       userId: user.id,

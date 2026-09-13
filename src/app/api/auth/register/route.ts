@@ -1,12 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { createClient } from '@supabase/supabase-js';
-
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-key';
-  return createClient(url, key);
-}
+import { getSupabaseAdmin } from '@/lib/supabase-server';
 
 export async function POST(request: Request) {
   try {
@@ -31,21 +24,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: authError?.message || 'Auth error' }, { status: 400 });
     }
 
-    const user = await prisma.user.create({
-      data: {
+    const { data: user, error: userError } = await supabase
+      .from('User')
+      .insert({
         id: authData.user.id,
         email: email.trim().toLowerCase(),
         name: name.trim(),
-        attributes: {
-          create: attributeNames.map(attrName => ({ name: attrName }))
-        }
-      },
-      include: { attributes: true }
-    });
+        grit: 0,
+      })
+      .select()
+      .single();
 
-    return NextResponse.json(user, { status: 201 });
+    if (userError) {
+      console.error('User DB creation error:', userError);
+      return NextResponse.json({ error: userError.message }, { status: 500 });
+    }
+
+    const { data: attributes, error: attrError } = await supabase
+      .from('Attribute')
+      .insert(
+        attributeNames.map(attrName => ({
+          userId: authData.user.id,
+          name: attrName,
+          xp: 0,
+          level: 1,
+          streak: 0,
+        }))
+      )
+      .select();
+
+    if (attrError) {
+      console.error('Attribute DB creation error:', attrError);
+    }
+
+    return NextResponse.json({ ...user, attributes: attributes || [] }, { status: 201 });
   } catch (error) {
     console.error('Register error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+

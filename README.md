@@ -2,7 +2,7 @@
 
 > **Turn everyday goals into meaningful actions. Build habits, forge capabilities, and see your real-world progress reflected in a dark-fantasy sovereign ledger.**
 
-**THE ARC** is a single-player **Life RPG** where the user is the character and real-world actions are gameplay. Built with **Next.js 16 (App Router), TypeScript, Tailwind CSS, Prisma ORM, and Supabase (Auth & PostgreSQL)**.
+**THE ARC** is a single-player **Life RPG** where the user is the character and real-world actions are gameplay. Built with **Next.js 16 (App Router), TypeScript, Tailwind CSS, and Supabase (Auth & PostgreSQL)**.
 
 ---
 
@@ -100,7 +100,7 @@ Brand new users begin with a dramatic narrative prologue instead of a boring sur
 │              Supabase PostgreSQL Database                │
 │    - User.id = auth.uid() (Direct UUID relational match) │
 │    - Row Level Security (RLS) on all user-owned tables   │
-│    - Connection pooling & direct connection via Prisma   │
+│    - Direct access via Supabase SDK (@supabase/supabase-js) │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -116,7 +116,7 @@ Brand new users begin with a dramatic narrative prologue instead of a boring sur
 - **Styling**: Tailwind CSS v4, Obsidian Noir & Antique Gold theme tokens
 - **3D & Graphics**: Three.js, React Three Fiber, SVG speed-line procedural filters
 - **Sound**: Procedural Web Audio API sound synthesis (zero external audio dependencies)
-- **Database & ORM**: PostgreSQL hosted on Supabase via Prisma ORM
+- **Database**: Supabase PostgreSQL via `@supabase/supabase-js` (zero raw database URL needed)
 - **Authentication**: Supabase SSR Auth (`@supabase/ssr`, `@supabase/supabase-js`)
 
 ---
@@ -142,22 +142,15 @@ NEXT_PUBLIC_SUPABASE_URL=https://[YOUR-PROJECT-REF].supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=[YOUR-ANON-KEY]
 SUPABASE_SERVICE_ROLE_KEY=[YOUR-SERVICE-ROLE-KEY]
 
-DATABASE_URL="postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres?pgbouncer=true"
-DIRECT_URL="postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres"
-
 CRON_SECRET=your-random-cron-secret
 DEMO_MODE=false
 NEXT_PUBLIC_DEMO_MODE=false
 ```
 
-### 3. Push Database Schema to Supabase
-```bash
-npx prisma db push
-```
-
-Run the Row Level Security (RLS) policies in the **Supabase SQL Editor**:
+### 3. Initialize Database in Supabase
+Run the full schema and seed script in the **Supabase SQL Editor**:
 ```sql
--- Located in supabase/rls-policies.sql
+-- Located in supabase/schema.sql (creates all tables, RLS policies, and starter seed data)
 ```
 
 ### 4. Run Development Server

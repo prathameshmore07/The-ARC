@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 
 export async function PATCH(
   request: Request,
@@ -20,9 +19,13 @@ export async function PATCH(
       return NextResponse.json({ error: 'Name cannot be empty' }, { status: 400 });
     }
 
-    const attribute = await prisma.attribute.findUnique({
-      where: { id },
-    });
+    const supabase = getSupabaseAdmin();
+
+    const { data: attribute } = await supabase
+      .from('Attribute')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
 
     if (!attribute) {
       return NextResponse.json({ error: 'Attribute not found' }, { status: 404 });
@@ -32,10 +35,16 @@ export async function PATCH(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const updated = await prisma.attribute.update({
-      where: { id },
-      data: { name: name.trim() },
-    });
+    const { data: updated, error: updateError } = await supabase
+      .from('Attribute')
+      .update({ name: name.trim() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
 
     return NextResponse.json(updated);
   } catch (error) {

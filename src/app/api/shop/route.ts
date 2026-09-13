@@ -1,20 +1,24 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const user = await getAuthUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const allItems = await prisma.cosmeticItem.findMany();
-    const owned = await prisma.userCosmetic.findMany({
-      where: { userId: user.id },
-      include: { item: true }
-    });
+    const supabase = getSupabaseAdmin();
 
-    return NextResponse.json({ items: allItems, owned });
+    const [itemsRes, ownedRes] = await Promise.all([
+      supabase.from('CosmeticItem').select('*'),
+      supabase.from('UserCosmetic').select('*, item:CosmeticItem(*)').eq('userId', user.id),
+    ]);
+
+    return NextResponse.json({
+      items: itemsRes.data || [],
+      owned: ownedRes.data || [],
+    });
   } catch (error) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+

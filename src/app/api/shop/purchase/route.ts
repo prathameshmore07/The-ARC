@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 
 export async function POST(request: Request) {
   try {
@@ -10,40 +9,58 @@ export async function POST(request: Request) {
     const { itemId } = await request.json();
     if (!itemId) return NextResponse.json({ error: 'Item ID required' }, { status: 400 });
 
-    const item = await prisma.cosmeticItem.findUnique({ where: { id: itemId } });
+    const supabase = getSupabaseAdmin();
+
+    const { data: item } = await supabase
+      .from('CosmeticItem')
+      .select('*')
+      .eq('id', itemId)
+      .maybeSingle();
+
     if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 });
 
-    const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-    if (!dbUser || dbUser.grit < item.price) {
+    const { data: dbUser } = await supabase
+      .from('User')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (!dbUser || (dbUser.grit || 0) < item.price) {
       return NextResponse.json({ error: 'Not enough grit' }, { status: 400 });
     }
 
-    const existing = await prisma.userCosmetic.findUnique({
-      where: { userId_itemId: { userId: user.id, itemId: item.id } }
-    });
+    const { data: existing } = await supabase
+      .from('UserCosmetic')
+      .select('id')
+      .eq('userId', user.id)
+      .eq('itemId', item.id)
+      .maybeSingle();
+
     if (existing) {
       return NextResponse.json({ error: 'Already owned' }, { status: 400 });
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const updatedUser = await tx.user.update({
-        where: { id: user.id },
-        data: { grit: { decrement: item.price } }
-      });
+    const newGrit = (dbUser.grit || 0) - item.price;
+    await supabase
+      .from('User')
+      .update({ grit: newGrit })
+      .eq('id', user.id);
 
-      const userCosmetic = await tx.userCosmetic.create({
-        data: {
-          userId: user.id,
-          itemId: item.id,
-          equipped: false
-        },
-        include: { item: true }
-      });
+    const { data: userCosmetic, error: cosmError } = await supabase
+      .from('UserCosmetic')
+      .insert({
+        userId: user.id,
+        itemId: item.id,
+        equipped: false,
+      })
+      .select('*, item:CosmeticItem(*)')
+      .single();
 
-      return { grit: updatedUser.grit, item: userCosmetic };
-    });
+    if (cosmError) {
+      return NextResponse.json({ error: cosmError.message }, { status: 500 });
+    }
 
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json({ grit: newGrit, item: userCosmetic }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }

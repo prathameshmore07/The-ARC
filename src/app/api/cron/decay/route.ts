@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { getSupabaseAdmin } from '@/lib/supabase-server';
 import {
   computeDecay,
   computeStepsNeeded,
@@ -16,15 +16,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const supabase = getSupabaseAdmin();
     const now = new Date();
     const graceThreshold = new Date(
       now.getTime() - DECAY_GRACE_HOURS * 60 * 60 * 1000
     );
 
     // Find all attributes past the grace period
-    const staleAttributes = await prisma.attribute.findMany({
-      where: { lastActivityAt: { lt: graceThreshold } },
-    });
+    const { data: staleAttributes } = await supabase
+      .from('Attribute')
+      .select('*')
+      .lt('lastActivityAt', graceThreshold.toISOString());
 
     let processedCount = 0;
     const decayLog: Array<{
@@ -40,64 +42,60 @@ export async function POST(request: Request) {
 
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-    for (const attr of staleAttributes) {
+    for (const attr of (staleAttributes || [])) {
       // Compute decay
       const { newXp, overdueDays } = computeDecay(
         attr.xp,
-        attr.lastActivityAt,
+        new Date(attr.lastActivityAt),
         now
       );
 
       // Update attribute XP
-      await prisma.attribute.update({
-        where: { id: attr.id },
-        data: { xp: newXp },
-      });
+      await supabase
+        .from('Attribute')
+        .update({ xp: newXp })
+        .eq('id', attr.id);
 
       // Query historical completions in trailing 14 days to compute habit baseline
-      const completionsCount = await prisma.completionLog.count({
-        where: {
-          userId: attr.userId,
-          task: { attributeId: attr.id },
-          completedAt: { gte: fourteenDaysAgo },
-        },
-      });
+      const { count: completionsCount } = await supabase
+        .from('CompletionLog')
+        .select('*', { count: 'exact', head: true })
+        .eq('userId', attr.userId)
+        .gte('completedAt', fourteenDaysAgo.toISOString());
 
-      const baselineWeeklyRate = computeBaselineWeeklyRate(completionsCount);
+      const baselineWeeklyRate = computeBaselineWeeklyRate(completionsCount || 0);
       const computedHp = computeShadowHp(baselineWeeklyRate, overdueDays);
 
       // Shadow spawn / growth
-      const activeShadow = await prisma.shadowEntity.findFirst({
-        where: {
-          attributeId: attr.id,
-          userId: attr.userId,
-          defeatedAt: null,
-        },
-      });
+      const { data: activeShadow } = await supabase
+        .from('ShadowEntity')
+        .select('*')
+        .eq('attributeId', attr.id)
+        .eq('userId', attr.userId)
+        .is('defeatedAt', null)
+        .maybeSingle();
 
       let shadowAction: string;
 
       if (!activeShadow) {
-        await prisma.shadowEntity.create({
-          data: {
-            userId: attr.userId,
-            attributeId: attr.id,
-            hp: computedHp,
-            baselineWeeklyRate,
-            stepsNeeded: computeStepsNeeded(computedHp),
-          },
+        await supabase.from('ShadowEntity').insert({
+          userId: attr.userId,
+          attributeId: attr.id,
+          hp: computedHp,
+          baselineWeeklyRate,
+          stepsNeeded: computeStepsNeeded(computedHp),
         });
         shadowAction = 'spawned';
       } else {
         const newHp = Math.max(activeShadow.hp, computedHp);
-        await prisma.shadowEntity.update({
-          where: { id: activeShadow.id },
-          data: {
+        await supabase
+          .from('ShadowEntity')
+          .update({
             hp: newHp,
             baselineWeeklyRate,
             stepsNeeded: computeStepsNeeded(newHp),
-          },
-        });
+          })
+          .eq('id', activeShadow.id);
         shadowAction = 'grew';
       }
 
@@ -116,36 +114,33 @@ export async function POST(request: Request) {
     }
 
     // Create daily snapshots for all users
-    const users = await prisma.user.findMany({
-      include: { attributes: true },
-    });
+    const { data: users } = await supabase
+      .from('User')
+      .select('id, attributes:Attribute(xp)');
 
     const today = new Date(now);
     today.setHours(0, 0, 0, 0);
 
-    for (const user of users) {
-      const totalXp = user.attributes.reduce((sum, a) => sum + a.xp, 0);
+    for (const u of (users || [])) {
+      const attrs = (u as any).attributes || [];
+      const totalXp = attrs.reduce((sum: number, a: any) => sum + (a.xp || 0), 0);
 
-      await prisma.dailySnapshot.upsert({
-        where: {
-          userId_date: {
-            userId: user.id,
-            date: today,
+      await supabase
+        .from('DailySnapshot')
+        .upsert(
+          {
+            userId: u.id,
+            date: today.toISOString(),
+            totalXp,
           },
-        },
-        update: { totalXp },
-        create: {
-          userId: user.id,
-          date: today,
-          totalXp,
-        },
-      });
+          { onConflict: 'userId,date' }
+        );
     }
 
     return NextResponse.json({
       success: true,
       processedAttributes: processedCount,
-      usersSnapshotted: users.length,
+      usersSnapshotted: users?.length || 0,
       decayLog,
     });
   } catch (error) {

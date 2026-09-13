@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 import { synthesizeArcPlanWithGemini, OnboardingAnswers, ArcPersonalPlan } from '@/lib/gemini-strategist';
 
 /**
@@ -14,12 +13,16 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const supabase = getSupabaseAdmin();
+
     // Check if user already has tasks or completions
-    const [taskCount, completionCount] = await Promise.all([
-      prisma.task.count({ where: { userId: user.id } }).catch(() => 0),
-      prisma.completionLog.count({ where: { userId: user.id } }).catch(() => 0),
+    const [taskRes, completionRes] = await Promise.all([
+      supabase.from('Task').select('*', { count: 'exact', head: true }).eq('userId', user.id),
+      supabase.from('CompletionLog').select('*', { count: 'exact', head: true }).eq('userId', user.id),
     ]);
 
+    const taskCount = taskRes.count || 0;
+    const completionCount = completionRes.count || 0;
     const completed = taskCount > 0 || completionCount > 0;
 
     return NextResponse.json({
@@ -66,69 +69,82 @@ export async function POST(request: Request) {
     // Synthesize plan with Gemini Strategist (server-side, sanitized against unauthorized reward values)
     const plan: ArcPersonalPlan = await synthesizeArcPlanWithGemini(answers);
 
+    const supabase = getSupabaseAdmin();
+
     // Persist starter quests idempotently in the database
-    let userRecord = await prisma.user.findUnique({
-      where: { id: user.id },
-      include: { attributes: true, tasks: true },
-    }).catch(() => null);
+    let { data: userRecord } = await supabase
+      .from('User')
+      .select('*, attributes:Attribute(*), tasks:Task(*)')
+      .eq('id', user.id)
+      .maybeSingle();
 
     if (!userRecord) {
       try {
-        userRecord = await prisma.user.create({
-          data: {
+        const { data: newUser } = await supabase
+          .from('User')
+          .insert({
             id: user.id,
             email: user.email || 'user@thearc.dev',
             name: plan.identity.sovereignTitle,
-            attributes: {
-              create: [
-                { name: 'CRAFT', xp: 50 },
-                { name: 'BODY', xp: 50 },
-                { name: 'MIND', xp: 50 },
-                { name: 'PEOPLE', xp: 50 },
-              ],
-            },
-          },
-          include: { attributes: true, tasks: true },
-        });
-      } catch {
-        userRecord = await prisma.user.findUnique({
-          where: { id: user.id },
-          include: { attributes: true, tasks: true },
-        }).catch(() => null);
+            grit: 0,
+          })
+          .select()
+          .single();
+
+        if (newUser) {
+          const starterAttrs = [
+            { userId: user.id, name: 'CRAFT', xp: 50 },
+            { userId: user.id, name: 'BODY', xp: 50 },
+            { userId: user.id, name: 'MIND', xp: 50 },
+            { userId: user.id, name: 'PEOPLE', xp: 50 },
+          ];
+          const { data: createdAttrs } = await supabase
+            .from('Attribute')
+            .insert(starterAttrs)
+            .select();
+
+          userRecord = {
+            ...newUser,
+            attributes: createdAttrs || [],
+            tasks: [],
+          };
+        }
+      } catch (err) {
+        console.warn('Error creating user in onboarding:', err);
       }
     } else {
       // Update name to sovereign title if not set
       if (!userRecord.name || userRecord.name.includes('user')) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { name: plan.identity.sovereignTitle },
-        }).catch(() => {});
+        await supabase
+          .from('User')
+          .update({ name: plan.identity.sovereignTitle })
+          .eq('id', user.id);
       }
     }
 
-    if (userRecord && userRecord.tasks.length === 0 && userRecord.attributes.length > 0) {
+    const attributes = userRecord?.attributes || [];
+    const tasks = userRecord?.tasks || [];
+
+    if (userRecord && tasks.length === 0 && attributes.length > 0) {
       const attrMap: Record<string, string> = {};
-      userRecord.attributes.forEach((attr) => {
-        const upper = attr.name.toUpperCase();
+      attributes.forEach((attr: any) => {
+        const upper = (attr.name || '').toUpperCase();
         if (upper.includes('CRAFT') || upper.includes('CREATIV')) attrMap.CRAFT = attr.id;
         else if (upper.includes('BODY') || upper.includes('STRENGTH')) attrMap.BODY = attr.id;
         else if (upper.includes('MIND') || upper.includes('INTELLECT')) attrMap.MIND = attr.id;
         else if (upper.includes('PEOPLE') || upper.includes('DISCIPLINE') || upper.includes('SOCIAL')) attrMap.PEOPLE = attr.id;
       });
 
-      const fallbackAttrId = userRecord.attributes[0].id;
+      const fallbackAttrId = attributes[0].id;
 
       // Create starter tasks in database
-      for (const quest of plan.initialQuests) {
-        const targetAttrId = attrMap[quest.attribute] || fallbackAttrId;
-        await prisma.task.create({
-          data: {
-            title: quest.title,
-            attributeId: targetAttrId,
-            userId: user.id,
-          },
-        }).catch(() => {});
-      }
+      const tasksToInsert = plan.initialQuests.map((quest) => ({
+        title: quest.title,
+        attributeId: attrMap[quest.attribute] || fallbackAttrId,
+        userId: user.id,
+      }));
+
+      await supabase.from('Task').insert(tasksToInsert);
     }
 
     // Build compatibility profile format for any existing views

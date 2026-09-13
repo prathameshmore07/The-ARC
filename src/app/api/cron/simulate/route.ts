@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 import {
   computeDecay,
   computeStepsNeeded,
@@ -29,77 +28,76 @@ export async function POST(request: Request) {
       now.getTime() - days * 24 * 60 * 60 * 1000
     );
 
+    const supabase = getSupabaseAdmin();
+
     // Step 1: Set user's attributes lastActivityAt to simulated past
-    await prisma.attribute.updateMany({
-      where: { userId: user.id },
-      data: { lastActivityAt: simulatedLastActivity },
-    });
+    await supabase
+      .from('Attribute')
+      .update({ lastActivityAt: simulatedLastActivity.toISOString() })
+      .eq('userId', user.id);
 
     // Step 2: Run decay logic for this user's attributes
-    const attributes = await prisma.attribute.findMany({
-      where: { userId: user.id },
-    });
+    const { data: attributes } = await supabase
+      .from('Attribute')
+      .select('*')
+      .eq('userId', user.id);
 
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const results = [];
 
-    for (const attr of attributes) {
+    for (const attr of (attributes || [])) {
       const { newXp, overdueDays } = computeDecay(
         attr.xp,
-        attr.lastActivityAt,
+        new Date(attr.lastActivityAt),
         now
       );
 
-      await prisma.attribute.update({
-        where: { id: attr.id },
-        data: { xp: newXp },
-      });
+      await supabase
+        .from('Attribute')
+        .update({ xp: newXp })
+        .eq('id', attr.id);
 
       // Query historical completions for memory calculation
-      const completionsCount = await prisma.completionLog.count({
-        where: {
-          userId: user.id,
-          task: { attributeId: attr.id },
-          completedAt: { gte: fourteenDaysAgo },
-        },
-      });
+      const { count: completionsCount } = await supabase
+        .from('CompletionLog')
+        .select('*', { count: 'exact', head: true })
+        .eq('userId', user.id)
+        .gte('completedAt', fourteenDaysAgo.toISOString());
 
-      // If user is testing with zero past completions, seed a realistic 3.5x/wk benchmark so judges see the origin story in action!
-      const baselineWeeklyRate = completionsCount > 0 
-        ? computeBaselineWeeklyRate(completionsCount) 
+      // If user is testing with zero past completions, seed a realistic 3.5x/wk benchmark
+      const baselineWeeklyRate = (completionsCount && completionsCount > 0)
+        ? computeBaselineWeeklyRate(completionsCount)
         : 3.5;
-        
+
       const computedHp = computeShadowHp(baselineWeeklyRate, overdueDays);
 
       // Shadow spawn / growth
-      const activeShadow = await prisma.shadowEntity.findFirst({
-        where: {
-          attributeId: attr.id,
-          userId: user.id,
-          defeatedAt: null,
-        },
-      });
+      const { data: activeShadow } = await supabase
+        .from('ShadowEntity')
+        .select('*')
+        .eq('attributeId', attr.id)
+        .eq('userId', user.id)
+        .is('defeatedAt', null)
+        .maybeSingle();
 
       if (!activeShadow && overdueDays > 0) {
-        await prisma.shadowEntity.create({
-          data: {
-            userId: user.id,
-            attributeId: attr.id,
-            hp: computedHp,
-            baselineWeeklyRate,
-            stepsNeeded: computeStepsNeeded(computedHp),
-          },
+        await supabase.from('ShadowEntity').insert({
+          userId: user.id,
+          attributeId: attr.id,
+          hp: computedHp,
+          baselineWeeklyRate,
+          stepsNeeded: computeStepsNeeded(computedHp),
         });
       } else if (activeShadow && overdueDays > 0) {
         const newHp = Math.max(activeShadow.hp, computedHp);
-        await prisma.shadowEntity.update({
-          where: { id: activeShadow.id },
-          data: {
+        await supabase
+          .from('ShadowEntity')
+          .update({
             hp: newHp,
             baselineWeeklyRate,
             stepsNeeded: computeStepsNeeded(newHp),
-          },
-        });
+          })
+          .eq('id', activeShadow.id);
       }
 
       results.push({

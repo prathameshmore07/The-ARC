@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 
 export async function GET(
   request: Request,
@@ -13,13 +12,15 @@ export async function GET(
     }
 
     const { id } = await params;
+    const supabase = getSupabaseAdmin();
 
-    const task = await prisma.task.findUnique({
-      where: { id },
-      include: { attribute: true },
-    });
+    const { data: task, error } = await supabase
+      .from('Task')
+      .select('*, attribute:Attribute(*)')
+      .eq('id', id)
+      .maybeSingle();
 
-    if (!task) {
+    if (error || !task) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
@@ -45,8 +46,14 @@ export async function PATCH(
     }
 
     const { id } = await params;
+    const supabase = getSupabaseAdmin();
 
-    const task = await prisma.task.findUnique({ where: { id } });
+    const { data: task } = await supabase
+      .from('Task')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
     if (!task) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
@@ -67,10 +74,16 @@ export async function PATCH(
       updateData.status = body.status;
     }
 
-    const updated = await prisma.task.update({
-      where: { id },
-      data: updateData,
-    });
+    const { data: updated, error: updateError } = await supabase
+      .from('Task')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
 
     return NextResponse.json(updated);
   } catch (error) {
@@ -90,8 +103,14 @@ export async function DELETE(
     }
 
     const { id } = await params;
+    const supabase = getSupabaseAdmin();
 
-    const task = await prisma.task.findUnique({ where: { id } });
+    const { data: task } = await supabase
+      .from('Task')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
     if (!task) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
@@ -99,10 +118,11 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    await prisma.task.delete({ where: { id } });
+    await supabase.from('Task').delete().eq('id', id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Delete task error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+

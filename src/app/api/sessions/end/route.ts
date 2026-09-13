@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 import { validateFocusSession } from '@/lib/game-engine';
 
 export async function POST(request: Request) {
@@ -9,7 +8,13 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { sessionId } = await request.json();
-    const session = await prisma.focusSession.findUnique({ where: { id: sessionId } });
+    const supabase = getSupabaseAdmin();
+
+    const { data: session } = await supabase
+      .from('FocusSession')
+      .select('*')
+      .eq('id', sessionId)
+      .maybeSingle();
 
     if (!session || session.userId !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -17,17 +22,24 @@ export async function POST(request: Request) {
 
     const { validated, computedDurationSec } = validateFocusSession(session.heartbeatCount);
 
-    const updated = await prisma.focusSession.update({
-      where: { id: sessionId },
-      data: {
-        endedAt: new Date(),
+    const { data: updated, error } = await supabase
+      .from('FocusSession')
+      .update({
+        endedAt: new Date().toISOString(),
         validated,
-        computedDurationSec
-      }
-    });
+        computedDurationSec,
+      })
+      .eq('id', sessionId)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json(updated);
   } catch (error) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
+

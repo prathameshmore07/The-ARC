@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 import { HEARTBEAT_INTERVAL_SEC, HEARTBEAT_TOLERANCE_SEC } from '@/lib/game-engine';
 
 export async function POST(request: Request) {
@@ -15,9 +14,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
     }
 
-    const session = await prisma.focusSession.findUnique({
-      where: { id: sessionId },
-    });
+    const supabase = getSupabaseAdmin();
+
+    const { data: session } = await supabase
+      .from('FocusSession')
+      .select('*')
+      .eq('id', sessionId)
+      .maybeSingle();
 
     if (!session || session.userId !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -27,7 +30,7 @@ export async function POST(request: Request) {
     }
 
     const now = new Date();
-    const lastBeat = session.lastHeartbeat;
+    const lastBeat = new Date(session.lastHeartbeat);
     const diffSec = (now.getTime() - lastBeat.getTime()) / 1000;
 
     const minInterval = HEARTBEAT_INTERVAL_SEC - HEARTBEAT_TOLERANCE_SEC;
@@ -51,15 +54,18 @@ export async function POST(request: Request) {
       }
     }
 
-    const updated = await prisma.focusSession.update({
-      where: { id: sessionId },
-      data: {
-        heartbeatCount: { increment: 1 },
-        lastHeartbeat: now,
-      },
-    });
+    const newCount = (session.heartbeatCount || 0) + 1;
+    const { data: updated } = await supabase
+      .from('FocusSession')
+      .update({
+        heartbeatCount: newCount,
+        lastHeartbeat: now.toISOString(),
+      })
+      .eq('id', sessionId)
+      .select()
+      .single();
 
-    return NextResponse.json({ heartbeatCount: updated.heartbeatCount });
+    return NextResponse.json({ heartbeatCount: updated?.heartbeatCount || newCount });
   } catch (error) {
     console.error('Heartbeat error:', error);
     return NextResponse.json(

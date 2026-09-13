@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getAuthUser } from '@/lib/supabase-server';
+import { getAuthUser, getSupabaseAdmin } from '@/lib/supabase-server';
 import {
   computeRewards,
   applyShadowSteal,
@@ -24,11 +23,13 @@ export async function POST(
 
     const { id: taskId } = await params;
     const body = await request.json().catch(() => ({}));
+    const supabase = getSupabaseAdmin();
 
-    const task = await prisma.task.findUnique({
-      where: { id: taskId },
-      include: { attribute: true },
-    });
+    const { data: task } = await supabase
+      .from('Task')
+      .select('*, attribute:Attribute(*)')
+      .eq('id', taskId)
+      .maybeSingle();
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
@@ -75,9 +76,11 @@ export async function POST(
       // FOCUS: server validated session or elapsed duration
       let sessionValidated = false;
       if (focusSessionId) {
-        const session = await prisma.focusSession.findUnique({
-          where: { id: focusSessionId },
-        });
+        const { data: session } = await supabase
+          .from('FocusSession')
+          .select('*')
+          .eq('id', focusSessionId)
+          .maybeSingle();
         if (session && session.userId === user.id) {
           const v = validateFocusSession(session.heartbeatCount);
           sessionValidated = v.validated;
@@ -190,307 +193,308 @@ export async function POST(
 
     const now = new Date();
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Re-check task status inside transaction to prevent race conditions
-      const freshTask = await tx.task.findUnique({ where: { id: taskId } });
-      if (!freshTask || freshTask.status === 'done') {
-        throw new Error('ALREADY_COMPLETED');
+    // Re-check task status to prevent race conditions
+    const { data: freshTask } = await supabase
+      .from('Task')
+      .select('status')
+      .eq('id', taskId)
+      .maybeSingle();
+
+    if (!freshTask || freshTask.status === 'done') {
+      throw new Error('ALREADY_COMPLETED');
+    }
+
+    let focusVerified = false;
+    let computedDurationSec: number | null = null;
+
+    // Validate session or archetype verified work
+    if (archetype === 'FOCUS') {
+      if (focusSessionId) {
+        const { data: session } = await supabase
+          .from('FocusSession')
+          .select('*')
+          .eq('id', focusSessionId)
+          .maybeSingle();
+
+        if (session && session.userId === user.id && !session.endedAt) {
+          const validation = validateFocusSession(session.heartbeatCount);
+          focusVerified = validation.validated;
+          computedDurationSec = validation.computedDurationSec;
+
+          await supabase.from('FocusSession').update({
+            endedAt: now.toISOString(),
+            validated: focusVerified,
+            computedDurationSec,
+          }).eq('id', focusSessionId);
+        } else if (session && session.endedAt) {
+          focusVerified = session.validated;
+          computedDurationSec = session.computedDurationSec;
+        }
+      } else if (typeof elapsedDurationSec === 'number') {
+        focusVerified = true;
+        computedDurationSec = elapsedDurationSec;
       }
+    } else {
+      // Non-FOCUS archetypes are execution-verified through their dedicated arenas
+      focusVerified = true;
+      computedDurationSec =
+        typeof elapsedDurationSec === 'number' && elapsedDurationSec > 0
+          ? elapsedDurationSec
+          : typeof durationMinutes === 'number' && durationMinutes > 0
+          ? durationMinutes * 60
+          : 1800;
+    }
 
-      let focusVerified = false;
-      let computedDurationSec: number | null = null;
+    // Check for 48h resolve boost
+    const hasXpBoost = !!(
+      task.attribute.xpBoostUntil &&
+      new Date(task.attribute.xpBoostUntil) > now
+    );
 
-      // Validate session or archetype verified work
-      if (archetype === 'FOCUS') {
-        if (focusSessionId) {
-          const session = await tx.focusSession.findUnique({
-            where: { id: focusSessionId },
-          });
-          if (session && session.userId === user.id && !session.endedAt) {
-            const validation = validateFocusSession(session.heartbeatCount);
-            focusVerified = validation.validated;
-            computedDurationSec = validation.computedDurationSec;
+    // Compute initial rewards
+    const rewards = computeRewards({
+      focusVerified,
+      computedDurationSec,
+      hasXpBoost,
+    });
 
-            await tx.focusSession.update({
-              where: { id: focusSessionId },
-              data: {
-                endedAt: now,
-                validated: focusVerified,
-                computedDurationSec,
-              },
-            });
-          } else if (session && session.endedAt) {
-            focusVerified = session.validated;
-            computedDurationSec = session.computedDurationSec;
+    const earnedXp = rewards.xp;
+    let securedXp = earnedXp;
+    const gritGained = rewards.grit;
+
+    // Shadow interaction
+    const { data: activeShadow } = await supabase
+      .from('ShadowEntity')
+      .select('*')
+      .eq('attributeId', task.attributeId)
+      .eq('userId', user.id)
+      .is('defeatedAt', null)
+      .maybeSingle();
+
+    let shadowInteraction: string | null = null;
+    let shadowDefeated = false;
+    let stolenXp = 0;
+    let reclaimedXp = 0;
+    let xpBoostUntil: string | null = null;
+
+    if (activeShadow) {
+      // Apply parasitic steal
+      const stealResult = applyShadowSteal(earnedXp, activeShadow.stealRate);
+      securedXp = stealResult.actualXp;
+      stolenXp = stealResult.stolenXp;
+      const newStolenPool = (activeShadow.stolenXpPool || 0) + stolenXp;
+
+      if (focusVerified) {
+        const newProgress = activeShadow.sealProgress + 1;
+        if (newProgress >= activeShadow.stepsNeeded) {
+          // Shadow defeated!
+          shadowDefeated = true;
+          reclaimedXp = computeReclaimedXp(newStolenPool);
+
+          await supabase.from('ShadowEntity').update({
+            sealProgress: newProgress,
+            stolenXpPool: newStolenPool,
+            defeatedAt: now.toISOString(),
+          }).eq('id', activeShadow.id);
+
+          // Award Scar badge
+          const scarName = `Scar of ${task.attribute.name}`;
+          const { data: existingScar } = await supabase
+            .from('CosmeticItem')
+            .select('id')
+            .eq('name', scarName)
+            .maybeSingle();
+
+          let scarId = existingScar?.id;
+          if (!scarId) {
+            const { data: newScar } = await supabase.from('CosmeticItem').insert({
+              name: scarName,
+              type: 'badge',
+              description: `Permanent testament: Banished the Shadow haunting your ${task.attribute.name}.`,
+              price: 0,
+              cssClass: 'badge-scar',
+            }).select('id').single();
+            scarId = newScar?.id;
           }
-        } else if (typeof elapsedDurationSec === 'number') {
-          focusVerified = true;
-          computedDurationSec = elapsedDurationSec;
+
+          if (scarId) {
+            const { data: existingUserCosm } = await supabase
+              .from('UserCosmetic')
+              .select('id')
+              .eq('userId', user.id)
+              .eq('itemId', scarId)
+              .maybeSingle();
+
+            if (!existingUserCosm) {
+              await supabase.from('UserCosmetic').insert({
+                userId: user.id,
+                itemId: scarId,
+                equipped: true,
+              });
+            }
+          }
+
+          // Grant 48h XP boost (+10% resolve)
+          xpBoostUntil = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+          shadowInteraction = 'defeated';
+        } else {
+          await supabase.from('ShadowEntity').update({
+            sealProgress: newProgress,
+            stolenXpPool: newStolenPool,
+          }).eq('id', activeShadow.id);
+          shadowInteraction = 'progressed';
         }
       } else {
-        // Non-FOCUS archetypes are execution-verified through their dedicated arenas
-        focusVerified = true;
-        computedDurationSec =
-          typeof elapsedDurationSec === 'number' && elapsedDurationSec > 0
-            ? elapsedDurationSec
-            : typeof durationMinutes === 'number' && durationMinutes > 0
-            ? durationMinutes * 60
-            : 1800;
+        // Quick checkbox completion: Shadow steals, no progress on banish seal
+        await supabase.from('ShadowEntity').update({
+          stolenXpPool: newStolenPool,
+        }).eq('id', activeShadow.id);
+        shadowInteraction = 'stealing';
       }
+    }
 
-      // Check for 48h resolve boost
-      const hasXpBoost = !!(
-        task.attribute.xpBoostUntil &&
-        task.attribute.xpBoostUntil > now
-      );
+    // Compute streak
+    const newStreak = computeStreak(
+      task.attribute.streak,
+      task.attribute.lastActivityAt,
+      now
+    );
 
-      // Compute initial rewards
-      const rewards = computeRewards({
-        focusVerified,
-        computedDurationSec,
-        hasXpBoost,
-      });
+    // Attribute XP update (secured + any reclaimed XP on defeat)
+    const totalXpAdded = securedXp + reclaimedXp;
+    const newXp = task.attribute.xp + totalXpAdded;
+    const oldLevel = task.attribute.level;
+    const newLevel = computeLevel(newXp);
+    const leveledUp = newLevel > oldLevel;
 
-      const earnedXp = rewards.xp;
-      let securedXp = earnedXp;
-      const gritGained = rewards.grit;
+    const attributeUpdateData: any = {
+      xp: newXp,
+      level: newLevel,
+      streak: newStreak,
+      lastActivityAt: now.toISOString(),
+    };
+    if (xpBoostUntil) {
+      attributeUpdateData.xpBoostUntil = xpBoostUntil;
+    }
 
-      // Shadow interaction
-      const activeShadow = await tx.shadowEntity.findFirst({
-        where: {
-          attributeId: task.attributeId,
-          userId: user.id,
-          defeatedAt: null,
-        },
-      });
+    await supabase.from('Attribute').update(attributeUpdateData).eq('id', task.attributeId);
 
-      let shadowInteraction: string | null = null;
-      let shadowDefeated = false;
-      let stolenXp = 0;
-      let reclaimedXp = 0;
+    // Award grit (Marks)
+    const { data: dbUser } = await supabase.from('User').select('grit').eq('id', user.id).maybeSingle();
+    const newGrit = (dbUser?.grit || 0) + gritGained;
+    await supabase.from('User').update({ grit: newGrit }).eq('id', user.id);
 
-      if (activeShadow) {
-        // Apply parasitic steal
-        const stealResult = applyShadowSteal(earnedXp, activeShadow.stealRate);
-        securedXp = stealResult.actualXp;
-        stolenXp = stealResult.stolenXp;
-        const newStolenPool = (activeShadow.stolenXpPool || 0) + stolenXp;
-
-        if (focusVerified) {
-          const newProgress = activeShadow.sealProgress + 1;
-          if (newProgress >= activeShadow.stepsNeeded) {
-            // Shadow defeated!
-            shadowDefeated = true;
-            reclaimedXp = computeReclaimedXp(newStolenPool);
-
-            await tx.shadowEntity.update({
-              where: { id: activeShadow.id },
-              data: {
-                sealProgress: newProgress,
-                stolenXpPool: newStolenPool,
-                defeatedAt: now,
-              },
-            });
-
-            // Award Scar badge
-            const scarName = `Scar of ${task.attribute.name}`;
-            const scarCosmetic = await tx.cosmeticItem.upsert({
-              where: { name: scarName },
-              update: {},
-              create: {
-                name: scarName,
-                type: 'badge',
-                description: `Permanent testament: Banished the Shadow haunting your ${task.attribute.name}.`,
-                price: 0,
-                cssClass: `badge-scar`,
-              },
-            });
-
-            await tx.userCosmetic.upsert({
-              where: {
-                userId_itemId: {
-                  userId: user.id,
-                  itemId: scarCosmetic.id,
-                },
-              },
-              update: {},
-              create: {
-                userId: user.id,
-                itemId: scarCosmetic.id,
-                equipped: true,
-              },
-            });
-
-            // Grant 48h XP boost (+10% resolve)
-            await tx.attribute.update({
-              where: { id: task.attributeId },
-              data: {
-                xpBoostUntil: new Date(now.getTime() + 48 * 60 * 60 * 1000),
-              },
-            });
-
-            shadowInteraction = 'defeated';
-          } else {
-            await tx.shadowEntity.update({
-              where: { id: activeShadow.id },
-              data: {
-                sealProgress: newProgress,
-                stolenXpPool: newStolenPool,
-              },
-            });
-            shadowInteraction = 'progressed';
-          }
-        } else {
-          // Quick checkbox completion: Shadow steals, no progress on banish seal
-          await tx.shadowEntity.update({
-            where: { id: activeShadow.id },
-            data: {
-              stolenXpPool: newStolenPool,
-            },
-          });
-          shadowInteraction = 'stealing';
-        }
-      }
-
-      // Compute streak
-      const newStreak = computeStreak(
-        task.attribute.streak,
-        task.attribute.lastActivityAt,
-        now
-      );
-
-      // Attribute XP update (secured + any reclaimed XP on defeat)
-      const totalXpAdded = securedXp + reclaimedXp;
-      const newXp = task.attribute.xp + totalXpAdded;
-      const oldLevel = task.attribute.level;
-      const newLevel = computeLevel(newXp);
-      const leveledUp = newLevel > oldLevel;
-
-      await tx.attribute.update({
-        where: { id: task.attributeId },
-        data: {
-          xp: newXp,
-          level: newLevel,
-          streak: newStreak,
-          lastActivityAt: now,
-        },
-      });
-
-      // Award grit (Marks)
-      const updatedUser = await tx.user.update({
-        where: { id: user.id },
-        data: { grit: { increment: gritGained } },
-      });
-
-      // Create immutable completion log
-      await tx.completionLog.create({
-        data: {
-          userId: user.id,
-          taskId: task.id,
-          xpAwarded: totalXpAdded,
-          gritAwarded: gritGained,
-          focusVerified,
-          completedAt: now,
-        },
-      });
-
-      // Mark task as done
-      const updatedTask = await tx.task.update({
-        where: { id: task.id },
-        data: { status: 'done' },
-      });
-
-      // Check total completions for milestone & badge unlocks
-      const totalCompletions = await tx.completionLog.count({
-        where: { userId: user.id },
-      });
-
-      let milestoneReached: { title: string; category: string; description: string } | null = null;
-      let unlockedBadge: { name: string; type: string; image: string; description: string } | null = null;
-
-      if (totalCompletions === 1) {
-        milestoneReached = {
-          title: 'FIRST QUEST COMPLETED',
-          category: 'ORIGIN',
-          description: 'The first permanent mark upon your Sovereign Chronicle.',
-        };
-        unlockedBadge = {
-          name: 'CELESTIAL COMPASS',
-          type: 'insignia',
-          image: '/images/armory/badge_celestial_compass.jpg',
-          description: 'Awarded for taking your first verified sovereign action in THE ARC.',
-        };
-      } else if (totalCompletions === 10) {
-        milestoneReached = {
-          title: '10 QUESTS COMPLETE',
-          category: 'CADENCE',
-          description: 'The Arc strengthens. Momentum solidifies.',
-        };
-        unlockedBadge = {
-          name: 'THE BUILDER',
-          type: 'badge',
-          image: '/images/armory/badge_the_builder.jpg',
-          description: 'Forged through 10 verified sovereign completions.',
-        };
-      } else if (totalCompletions === 25) {
-        milestoneReached = {
-          title: '25 QUESTS FULFILLED',
-          category: 'MASTERY',
-          description: 'A quarter-century of sovereign real-world actions.',
-        };
-        unlockedBadge = {
-          name: 'THE SHIPPER',
-          type: 'badge',
-          image: '/images/armory/badge_the_shipper.jpg',
-          description: 'Proof of continuous delivery in the physical world.',
-        };
-      } else if (newStreak === 7) {
-        milestoneReached = {
-          title: '7-DAY STREAK',
-          category: 'MOMENTUM',
-          description: 'One full week of unbroken allegiance against entropy.',
-        };
-        unlockedBadge = {
-          name: 'AEGIS RESOLVE',
-          type: 'badge',
-          image: '/images/armory/badge_aegis_resolve.jpg',
-          description: 'Bestowed upon those who sustain 7 consecutive days of discipline.',
-        };
-      } else if (shadowDefeated) {
-        milestoneReached = {
-          title: 'SHADOW BANISHED',
-          category: 'VICTORY',
-          description: 'A parasitic entity was successfully confronted and banished.',
-        };
-      }
-
-      // Transparent reconciliation payload
-      return {
-        task: updatedTask,
-        archetype,
-        earned: earnedXp,
-        stolen: stolenXp,
-        secured: securedXp,
-        reclaimed: reclaimedXp,
-        gritGained,
-        marksAwarded: gritGained,
-        momentumAwarded: Math.max(4, Math.round(earnedXp * 0.4)),
-        xpAwarded: totalXpAdded,
-        newXp,
-        newLevel,
-        oldLevel,
-        leveledUp,
-        newStreak,
-        newGrit: updatedUser.grit,
-        marks: updatedUser.grit,
-        focusVerified,
-        shadowInteraction,
-        shadowDefeated,
-        attributeName: task.attribute.name,
-        milestoneReached,
-        unlockedBadge,
-      };
+    // Create immutable completion log
+    await supabase.from('CompletionLog').insert({
+      userId: user.id,
+      taskId: task.id,
+      xpAwarded: totalXpAdded,
+      gritAwarded: gritGained,
+      focusVerified,
+      completedAt: now.toISOString(),
     });
+
+    // Mark task as done
+    const { data: updatedTask } = await supabase
+      .from('Task')
+      .update({ status: 'done' })
+      .eq('id', task.id)
+      .select()
+      .single();
+
+    // Check total completions for milestone & badge unlocks
+    const { count: completionCount } = await supabase
+      .from('CompletionLog')
+      .select('*', { count: 'exact', head: true })
+      .eq('userId', user.id);
+
+    const totalCompletions = completionCount || 0;
+
+    let milestoneReached: { title: string; category: string; description: string } | null = null;
+    let unlockedBadge: { name: string; type: string; image: string; description: string } | null = null;
+
+    if (totalCompletions === 1) {
+      milestoneReached = {
+        title: 'FIRST QUEST COMPLETED',
+        category: 'ORIGIN',
+        description: 'The first permanent mark upon your Sovereign Chronicle.',
+      };
+      unlockedBadge = {
+        name: 'CELESTIAL COMPASS',
+        type: 'insignia',
+        image: '/images/armory/badge_celestial_compass.jpg',
+        description: 'Awarded for taking your first verified sovereign action in THE ARC.',
+      };
+    } else if (totalCompletions === 10) {
+      milestoneReached = {
+        title: '10 QUESTS COMPLETE',
+        category: 'CADENCE',
+        description: 'The Arc strengthens. Momentum solidifies.',
+      };
+      unlockedBadge = {
+        name: 'THE BUILDER',
+        type: 'badge',
+        image: '/images/armory/badge_the_builder.jpg',
+        description: 'Forged through 10 verified sovereign completions.',
+      };
+    } else if (totalCompletions === 25) {
+      milestoneReached = {
+        title: '25 QUESTS FULFILLED',
+        category: 'MASTERY',
+        description: 'A quarter-century of sovereign real-world actions.',
+      };
+      unlockedBadge = {
+        name: 'THE SHIPPER',
+        type: 'badge',
+        image: '/images/armory/badge_the_shipper.jpg',
+        description: 'Proof of continuous delivery in the physical world.',
+      };
+    } else if (newStreak === 7) {
+      milestoneReached = {
+        title: '7-DAY STREAK',
+        category: 'MOMENTUM',
+        description: 'One full week of unbroken allegiance against entropy.',
+      };
+      unlockedBadge = {
+        name: 'AEGIS RESOLVE',
+        type: 'badge',
+        image: '/images/armory/badge_aegis_resolve.jpg',
+        description: 'Bestowed upon those who sustain 7 consecutive days of discipline.',
+      };
+    } else if (shadowDefeated) {
+      milestoneReached = {
+        title: 'SHADOW BANISHED',
+        category: 'VICTORY',
+        description: 'A parasitic entity was successfully confronted and banished.',
+      };
+    }
+
+    // Transparent reconciliation payload
+    const result = {
+      task: updatedTask || { id: task.id, status: 'done' },
+      archetype,
+      earned: earnedXp,
+      stolen: stolenXp,
+      secured: securedXp,
+      reclaimed: reclaimedXp,
+      gritGained,
+      marksAwarded: gritGained,
+      momentumAwarded: Math.max(4, Math.round(earnedXp * 0.4)),
+      xpAwarded: totalXpAdded,
+      newXp,
+      newLevel,
+      oldLevel,
+      leveledUp,
+      newStreak,
+      newGrit,
+      marks: newGrit,
+      focusVerified,
+      shadowInteraction,
+      shadowDefeated,
+      attributeName: task.attribute.name,
+      milestoneReached,
+      unlockedBadge,
+    };
 
     return NextResponse.json(result);
   } catch (error) {
