@@ -141,10 +141,24 @@ export default function AppShell({
 
   const handleSignOut = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { method: 'POST', cache: 'no-store' });
+    } catch {}
+    try {
       await supabase.auth.signOut();
     } catch {}
-    window.location.href = '/';
+
+    try {
+      document.cookie = 'ee_demo_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0;';
+      localStorage.removeItem('arc_onboarding_completed');
+      localStorage.removeItem('arc_user_profile');
+      localStorage.removeItem('arc_primary_path');
+      localStorage.removeItem('arc_starter_quests');
+      localStorage.removeItem('arc_personal_plan');
+      localStorage.removeItem('arc_plan');
+      sessionStorage.clear();
+    } catch {}
+
+    window.location.href = '/?logout=true';
   };
 
   const startFocusSession = (durationMinutes: number) => {
@@ -286,6 +300,15 @@ export default function AppShell({
             <Coins className="w-3 h-3 text-[#C5A059]" />
             <span>{liveMarks} M</span>
           </Link>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="flex items-center justify-center w-7 h-7 rounded text-[#8B97A6] hover:text-[#E05252] hover:bg-[#E05252]/10 border border-[#1A222C] transition-colors cursor-pointer"
+            title="Sign Out"
+            aria-label="Sign Out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
       </header>
 
@@ -439,7 +462,18 @@ export default function AppShell({
               </div>
             </div>
 
-            <div className="mt-8 flex justify-end">
+            <div className="mt-8 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsModalOpen(false);
+                  handleSignOut();
+                }}
+                className="flex items-center gap-2 px-3.5 py-2 text-[11px] font-sans tracking-[0.14em] uppercase text-[#E05252] hover:text-[#FF6B6B] hover:bg-[#E05252]/10 border border-[#E05252]/20 transition-colors rounded cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setSettingsModalOpen(false)}

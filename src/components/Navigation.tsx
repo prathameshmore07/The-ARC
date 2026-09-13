@@ -33,10 +33,24 @@ export default function Navigation({
 
   const handleSignOut = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { method: 'POST', cache: 'no-store' });
+    } catch {}
+    try {
       await supabase.auth.signOut();
     } catch {}
-    window.location.href = '/login';
+
+    try {
+      document.cookie = 'ee_demo_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0;';
+      localStorage.removeItem('arc_onboarding_completed');
+      localStorage.removeItem('arc_user_profile');
+      localStorage.removeItem('arc_primary_path');
+      localStorage.removeItem('arc_starter_quests');
+      localStorage.removeItem('arc_personal_plan');
+      localStorage.removeItem('arc_plan');
+      sessionStorage.clear();
+    } catch {}
+
+    window.location.href = '/?logout=true';
   };
 
   const navLinks = [
