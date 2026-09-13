@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef, use } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -33,14 +33,11 @@ interface SkillSet {
   completed: boolean;
 }
 
-export default function FocusQuestPage({
-  params,
-}: {
-  params: Promise<{ taskId: string }>;
-}) {
+function FocusQuestContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { taskId } = use(params);
+  const clientParams = useParams();
+  const taskId = (clientParams?.taskId as string) || '';
 
   // Parse Query Parameters
   const paramArchetype = (searchParams.get('archetype')?.toUpperCase() || null) as QuestArchetype | null;
@@ -76,7 +73,7 @@ export default function FocusQuestPage({
   }
 
   const archetype = inferredArchetype;
-  const archetypeConfig = QUEST_ARCHETYPES[archetype];
+  const archetypeConfig = QUEST_ARCHETYPES[archetype] || QUEST_ARCHETYPES.FOCUS;
 
   // Attribute Key
   const rawAttr: ArcAttributeKey =
@@ -459,14 +456,23 @@ export default function FocusQuestPage({
       let completeRes: Response | null = null;
       let completeData: any = null;
 
-      if (!taskId.startsWith('move-') && !taskId.startsWith('quest-') && !taskId.startsWith('custom-')) {
+      const isSyntheticOrStarter =
+        taskId.startsWith('move-') ||
+        taskId.startsWith('quest-') ||
+        taskId.startsWith('custom-') ||
+        taskId === 'deep-work' ||
+        !!starter;
+
+      if (!isSyntheticOrStarter) {
         completeRes = await fetch(`/api/tasks/${taskId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         completeData = await completeRes.json().catch(() => ({}));
-      } else {
+      }
+
+      if (isSyntheticOrStarter || (completeRes && completeRes.status === 404)) {
         // Persist synthetic or starter quest to database for immutable ledger record
         try {
           const dashRes = await fetch('/api/dashboard');
@@ -1358,6 +1364,23 @@ export default function FocusQuestPage({
         onClose={() => setReactionPayload(null)}
       />
     </div>
+  );
+}
+
+export default function FocusQuestPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#06090E] flex flex-col items-center justify-center text-center p-6">
+          <div className="w-8 h-8 rounded-full border-2 border-[#C5A059] border-t-transparent animate-spin mb-4" />
+          <span className="font-mono text-xs text-[#C5A059] tracking-[0.25em] uppercase">
+            INITIALIZING MISSION ARENA...
+          </span>
+        </div>
+      }
+    >
+      <FocusQuestContent />
+    </Suspense>
   );
 }
 

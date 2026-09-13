@@ -139,13 +139,13 @@ export default function ComicReactionEngine({
     }
   }, [payload, onClose]);
 
-  if (!payload) return null;
+  // Sound effects for reward counts (unconditionally declared hooks)
+  const countXp = useCountUp(payload?.xp || 0, 600, payload?.type === 'QUEST_COMPLETE');
+  const countMomentum = useCountUp(payload?.momentum || 0, 600, payload?.type === 'QUEST_COMPLETE');
+  const countMarks = useCountUp(payload?.marks || 0, 600, payload?.type === 'QUEST_COMPLETE');
+  const countAttr = useCountUp(payload?.attrPoints || 0, 600, payload?.type === 'QUEST_COMPLETE');
 
-  // Sound effects for reward counts
-  const countXp = useCountUp(payload.xp || 0, 600, payload.type === 'QUEST_COMPLETE');
-  const countMomentum = useCountUp(payload.momentum || 0, 600, payload.type === 'QUEST_COMPLETE');
-  const countMarks = useCountUp(payload.marks || 0, 600, payload.type === 'QUEST_COMPLETE');
-  const countAttr = useCountUp(payload.attrPoints || 0, 600, payload.type === 'QUEST_COMPLETE');
+  if (!payload) return null;
 
   // Cascade handler from Complete -> Badge -> Level -> Milestone -> Done
   const handleNextInCascade = () => {
