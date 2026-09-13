@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Navigation from '@/components/Navigation';
-import { CheckCircle, Zap } from 'lucide-react';
+import Link from 'next/link';
+import AppShell from '@/components/shell/AppShell';
+import { CheckCircle2, Clock, Zap, ArrowRight } from 'lucide-react';
 
 interface Completion {
   id: string;
@@ -30,6 +31,8 @@ export default function HistoryPage() {
           const json = await res.json();
           setData(json);
         }
+      } catch (err) {
+        console.error('Failed to load history', err);
       } finally {
         setLoading(false);
       }
@@ -37,23 +40,8 @@ export default function HistoryPage() {
     loadData();
   }, []);
 
-  if (loading || !data) {
-    return (
-      <div className="min-h-screen bg-[var(--ink-navy)] p-6">
-        <div className="max-w-3xl mx-auto space-y-4 pt-12">
-          <div className="h-8 bg-[var(--page-bone)]/10 rounded w-48 animate-pulse" />
-          <div className="h-64 bg-[var(--page-bone)]/5 rounded-xl animate-pulse" />
-        </div>
-      </div>
-    );
-  }
+  const completions: Completion[] = data?.completions || [];
 
-  const completions: Completion[] = data.completions || [];
-  const totalLevel = data.attributes?.reduce((sum: number, a: any) => sum + a.level, 0) || 1;
-  const totalXp = data.attributes?.reduce((sum: number, a: any) => sum + a.xp, 0) || 0;
-  const activeShadow = data.attributes?.find((a: any) => a.shadow && !a.shadow.defeatedAt);
-
-  // Group completions by day (Section 3.12)
   const groupedByDay: { [dateStr: string]: Completion[] } = {};
   for (const comp of completions) {
     const d = new Date(comp.completedAt);
@@ -72,67 +60,68 @@ export default function HistoryPage() {
   const dayKeys = Object.keys(groupedByDay);
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex flex-col pb-24 md:pb-12">
-      <Navigation
-        totalLevel={totalLevel}
-        totalXp={totalXp}
-        grit={data.user?.grit || 0}
-        hasActiveShadow={!!activeShadow}
-        activeShadowAttrId={activeShadow?.id}
-      />
-
-      <main className="max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="font-serif font-bold text-3xl sm:text-4xl tracking-tight text-[var(--text-headline)]">
-            Chronicle History
+    <AppShell>
+      <div className="max-w-[1080px] mx-auto px-6 lg:px-12 pt-10 pb-20">
+        <header className="mb-10">
+          <span className="font-mono text-[10px] tracking-[0.24em] text-[#C5A059] uppercase font-semibold block mb-2">
+            ACTION LOG
+          </span>
+          <h1 className="font-display font-semibold text-4xl sm:text-5xl text-[#F2EEE6] tracking-tight uppercase mb-3">
+            Completed Moves
           </h1>
-          <p className="text-xs text-[var(--text-dim)] mt-1">
-            Reverse-chronological log of completed quests and deep focus sessions.
+          <p className="font-sans text-sm text-[#8B97A6] font-light max-w-xl">
+            A chronological record of verified real-world actions, workouts, and deep focus rituals.
           </p>
-        </div>
+        </header>
 
-        {/* Grouped Days Log */}
         {dayKeys.length === 0 ? (
-          <div className="bg-[var(--bg-surface-1)] p-8 rounded-2xl border border-[var(--border-subtle)] text-center text-sm text-[var(--text-dim)]">
-            No entries inscribed yet. Complete a quest to start building your chronicle.
+          <div className="bg-[#0C121B] p-12 rounded-lg border border-[#1E2938] text-center">
+            <h3 className="font-display text-2xl text-[#EDE8DF] uppercase mb-2">No moves logged yet</h3>
+            <p className="font-sans text-xs text-[#8B97A6] mb-6">
+              Your ARC begins with one move. Choose a quest and record your forward momentum.
+            </p>
+            <Link
+              href="/quests"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-[#C5A059] text-[#080C12] text-xs font-sans tracking-[0.18em] uppercase font-semibold rounded"
+            >
+              <span>Explore Quests</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-10">
             {dayKeys.map((day) => (
-              <section key={day} aria-labelledby={`date-header-${day}`}>
-                <h2
-                  id={`date-header-${day}`}
-                  className="font-serif font-bold text-base text-[var(--accent-amber)] pb-2 mb-3 border-b border-[var(--border-subtle)]"
-                >
+              <section key={day}>
+                <h2 className="font-mono text-xs text-[#C5A059] uppercase tracking-widest pb-2 mb-3 border-b border-[#1A222C]">
                   {day}
                 </h2>
 
-                <div className="divide-y divide-[var(--border-subtle)] bg-[var(--bg-surface-1)] rounded-xl border border-[var(--border-subtle)] overflow-hidden shadow-rpg-sm">
+                <div className="divide-y divide-[#151E2A] bg-[#0A0E14] rounded-lg border border-[#1A222C] overflow-hidden">
                   {groupedByDay[day].map((entry) => (
                     <div
                       key={entry.id}
-                      className="px-4 py-3.5 flex items-center justify-between text-sm hover:bg-[var(--bg-surface-2)] transition-colors"
+                      className="px-5 py-4 flex items-center justify-between text-sm hover:bg-[#0C121B] transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <CheckCircle className="w-4 h-4 text-[var(--accent-forest)] flex-shrink-0" aria-hidden="true" />
+                        <CheckCircle2 className="w-4 h-4 text-[#3A7F58] shrink-0" />
                         <div>
-                          <span className="font-medium text-[var(--text-headline)]">{entry.task.title}</span>
-                          <span className="text-xs text-[var(--text-dim)] ml-2">
+                          <span className="font-display text-base text-[#F2EEE6] uppercase tracking-wide">
+                            {entry.task.title}
+                          </span>
+                          <span className="text-[10px] font-mono text-[#6B7784] ml-3 uppercase">
                             ({entry.task.attribute.name})
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 text-xs">
+                      <div className="flex items-center gap-4 text-xs font-mono">
                         {entry.focusVerified && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[var(--accent-slate)]/20 text-sky-300 border border-[var(--accent-slate)]/40 font-serif">
-                            <Zap className="w-3 h-3" aria-hidden="true" />
-                            <span>Server-Timed</span>
+                          <span className="text-[9px] px-2 py-0.5 rounded bg-[#C5A059]/15 text-[#C5A059] border border-[#C5A059]/30 uppercase">
+                            Server-Verified
                           </span>
                         )}
-                        <span className="font-mono font-bold text-[var(--accent-amber)]">
-                          +{entry.xpAwarded} XP
+                        <span className="text-[#C5A059] font-semibold">
+                          +{entry.xpAwarded} MOMENTUM
                         </span>
                       </div>
                     </div>
@@ -142,7 +131,7 @@ export default function HistoryPage() {
             ))}
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

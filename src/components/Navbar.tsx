@@ -33,7 +33,7 @@ export default function Navbar({
                 The Living Ledger
               </span>
               <span className="text-[10px] text-[#A87C3F] font-serif tracking-widest uppercase block">
-                Entropy Engine
+                The ARC
               </span>
             </div>
           </div>

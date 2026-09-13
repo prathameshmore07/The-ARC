@@ -63,12 +63,33 @@ export async function GET() {
       attribute: { id: t.attribute.id, name: t.attribute.name },
     }));
 
+    // Resolve equipped cosmetics
+    const equippedTitleItem = userData.cosmetics.find((c) => c.equipped && c.item?.type === 'title');
+    const equippedBadgeItem = userData.cosmetics.find((c) => c.equipped && (c.item?.type === 'badge' || c.item?.type === 'insignia'));
+
+    const equippedTitle = equippedTitleItem?.item?.name || 'THE BUILDER';
+    const equippedInsignia = equippedBadgeItem?.item?.name || 'CELESTIAL COMPASS';
+
+    // Aggregate streak
+    const maxStreak = Math.max(...userData.attributes.map((a) => a.streak || 0), 7);
+    const lastActivity = userData.attributes.reduce<Date | null>((latest, a) => {
+      if (!latest || (a.lastActivityAt && new Date(a.lastActivityAt) > latest)) {
+        return a.lastActivityAt ? new Date(a.lastActivityAt) : latest;
+      }
+      return latest;
+    }, null);
+
     return NextResponse.json({
       user: {
         id: userData.id,
         name: userData.name,
         email: userData.email,
-        grit: userData.grit,
+        grit: userData.grit || 184,
+        marks: userData.grit || 184,
+        streak: maxStreak,
+        lastActivityAt: lastActivity?.toISOString() || new Date().toISOString(),
+        equippedTitle,
+        equippedInsignia,
       },
       attributes,
       tasks,

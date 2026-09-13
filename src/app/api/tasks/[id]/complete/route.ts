@@ -22,7 +22,22 @@ export async function POST(
 
     const { id: taskId } = await params;
     const body = await request.json().catch(() => ({}));
-    const { focusSessionId } = body;
+    const {
+      archetype = 'FOCUS',
+      focusSessionId,
+      elapsedDurationSec,
+      targetDurationSec,
+      durationMinutes,
+      distanceValue,
+      targetDistance,
+      countValue,
+      targetCount,
+      completedCheckpoints,
+      requiredCheckpoints,
+      confirmed,
+      skillOutput,
+      targetValue,
+    } = body;
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
@@ -41,34 +56,147 @@ export async function POST(
       return NextResponse.json({ error: 'Task already completed' }, { status: 400 });
     }
 
+    // ── Server-Side Validation for Each Archetype ───────────────
+    if (archetype === 'FOCUS') {
+      // FOCUS: server validated session or elapsed duration
+      let sessionValidated = false;
+      if (focusSessionId) {
+        const session = await prisma.focusSession.findUnique({
+          where: { id: focusSessionId },
+        });
+        if (session && session.userId === user.id) {
+          const v = validateFocusSession(session.heartbeatCount);
+          sessionValidated = v.validated;
+        }
+      }
+
+      if (!sessionValidated) {
+        const targetSec =
+          typeof targetDurationSec === 'number' && targetDurationSec > 0
+            ? targetDurationSec
+            : typeof durationMinutes === 'number' && durationMinutes > 0
+            ? durationMinutes * 60
+            : 0;
+        const elapsed = typeof elapsedDurationSec === 'number' ? elapsedDurationSec : 0;
+
+        // Timer integrity check: if stopped early, reject completion without penalty
+        if (targetSec > 0 && elapsed < Math.max(30, targetSec - 5)) {
+          const completedMin = Math.floor(elapsed / 60);
+          const remainingMin = Math.max(1, Math.ceil((targetSec - elapsed) / 60));
+          return NextResponse.json(
+            {
+              error: `${completedMin} MIN COMPLETED · ${remainingMin} MIN REMAINING · [ CONTINUE QUEST ]`,
+              integrityFailed: true,
+              completedMin,
+              remainingMin,
+            },
+            { status: 400 }
+          );
+        }
+
+        if (elapsed === 0 && !focusSessionId) {
+          return NextResponse.json(
+            { error: 'Focus quest requires active execution duration or verified session.' },
+            { status: 400 }
+          );
+        }
+      }
+    } else if (archetype === 'DISTANCE') {
+      // DISTANCE: distanceValue >= targetValue
+      const requiredDist = targetDistance ?? targetValue ?? 1.0;
+      if (typeof distanceValue !== 'number' || distanceValue < requiredDist) {
+        return NextResponse.json(
+          {
+            error: `Distance verification failed: ${distanceValue ?? 0} / ${requiredDist} KM completed.`,
+          },
+          { status: 400 }
+        );
+      }
+    } else if (archetype === 'COUNT') {
+      // COUNT: countValue >= targetValue
+      const requiredCnt = targetCount ?? targetValue ?? 1;
+      if (typeof countValue !== 'number' || countValue < requiredCnt) {
+        return NextResponse.json(
+          {
+            error: `Count verification failed: ${countValue ?? 0} / ${requiredCnt} completed.`,
+          },
+          { status: 400 }
+        );
+      }
+    } else if (archetype === 'BUILD') {
+      // BUILD: completedCheckpoints.length >= requiredCheckpoints
+      const requiredCP = requiredCheckpoints ?? targetValue ?? 1;
+      const completedLen = Array.isArray(completedCheckpoints)
+        ? completedCheckpoints.length
+        : 0;
+      if (completedLen < requiredCP) {
+        return NextResponse.json(
+          {
+            error: `Build checkpoints incomplete: ${completedLen} / ${requiredCP} completed.`,
+          },
+          { status: 400 }
+        );
+      }
+    } else if (archetype === 'ACTION') {
+      // ACTION: confirmed === true
+      if (confirmed !== true) {
+        return NextResponse.json(
+          { error: 'Action confirmation required.' },
+          { status: 400 }
+        );
+      }
+    } else if (archetype === 'SKILL') {
+      // SKILL: output provided
+      if (typeof skillOutput !== 'string' || !skillOutput.trim()) {
+        return NextResponse.json(
+          { error: 'Skill practice output log is required.' },
+          { status: 400 }
+        );
+      }
+    }
+
     const now = new Date();
 
     const result = await prisma.$transaction(async (tx) => {
       let focusVerified = false;
       let computedDurationSec: number | null = null;
 
-      // Validate server-timed session if provided
-      if (focusSessionId) {
-        const session = await tx.focusSession.findUnique({
-          where: { id: focusSessionId },
-        });
-        if (session && session.userId === user.id && !session.endedAt) {
-          const validation = validateFocusSession(session.heartbeatCount);
-          focusVerified = validation.validated;
-          computedDurationSec = validation.computedDurationSec;
-
-          await tx.focusSession.update({
+      // Validate session or archetype verified work
+      if (archetype === 'FOCUS') {
+        if (focusSessionId) {
+          const session = await tx.focusSession.findUnique({
             where: { id: focusSessionId },
-            data: {
-              endedAt: now,
-              validated: focusVerified,
-              computedDurationSec,
-            },
           });
-        } else if (session && session.endedAt) {
-          focusVerified = session.validated;
-          computedDurationSec = session.computedDurationSec;
+          if (session && session.userId === user.id && !session.endedAt) {
+            const validation = validateFocusSession(session.heartbeatCount);
+            focusVerified = validation.validated;
+            computedDurationSec = validation.computedDurationSec;
+
+            await tx.focusSession.update({
+              where: { id: focusSessionId },
+              data: {
+                endedAt: now,
+                validated: focusVerified,
+                computedDurationSec,
+              },
+            });
+          } else if (session && session.endedAt) {
+            focusVerified = session.validated;
+            computedDurationSec = session.computedDurationSec;
+          }
+        } else if (typeof elapsedDurationSec === 'number') {
+          focusVerified = true;
+          computedDurationSec = elapsedDurationSec;
         }
+      } else {
+        // Non-FOCUS archetypes are execution-verified through their dedicated arenas
+        focusVerified = true;
+        computedDurationSec =
+          typeof elapsedDurationSec === 'number' && elapsedDurationSec > 0
+            ? elapsedDurationSec
+            : typeof durationMinutes === 'number' && durationMinutes > 0
+            ? durationMinutes * 60
+            : 1800;
       }
 
       // Check for 48h resolve boost
@@ -209,8 +337,8 @@ export async function POST(
         },
       });
 
-      // Award grit
-      await tx.user.update({
+      // Award grit (Marks)
+      const updatedUser = await tx.user.update({
         where: { id: user.id },
         data: { grit: { increment: gritGained } },
       });
@@ -233,19 +361,25 @@ export async function POST(
         data: { status: 'done' },
       });
 
-      // Part A #7: Transparent 3-number reconciliation payload
+      // Transparent reconciliation payload
       return {
         task: updatedTask,
+        archetype,
         earned: earnedXp,
         stolen: stolenXp,
         secured: securedXp,
         reclaimed: reclaimedXp,
         gritGained,
+        marksAwarded: gritGained,
+        momentumAwarded: Math.max(4, Math.round(earnedXp * 0.4)),
+        xpAwarded: totalXpAdded,
         newXp,
         newLevel,
         oldLevel,
         leveledUp,
         newStreak,
+        newGrit: updatedUser.grit,
+        marks: updatedUser.grit,
         focusVerified,
         shadowInteraction,
         shadowDefeated,

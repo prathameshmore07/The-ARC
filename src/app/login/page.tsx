@@ -17,54 +17,23 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1. Try local demo login if demo credentials or placeholder Supabase URL
-      const isPlaceholder = !process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder');
-      if (loginEmail.toLowerCase().includes('demo') || isPlaceholder) {
-        const demoRes = await fetch('/api/auth/demo-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: loginEmail }),
-        });
-        if (demoRes.ok) {
-          router.push('/dashboard');
-          return;
-        }
-      }
-
-      // 2. Try Supabase Auth
-      const { error: authError } = await supabaseBrowser.auth.signInWithPassword({
-        email: loginEmail,
+      // Authenticate via Supabase Auth only
+      const { data, error: authError } = await supabaseBrowser.auth.signInWithPassword({
+        email: loginEmail.trim().toLowerCase(),
         password: loginPass,
       });
 
       if (authError) {
-        // Graceful fallback to demo login for local testing
-        const fallbackRes = await fetch('/api/auth/demo-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: loginEmail }),
-        });
-        if (fallbackRes.ok) {
-          router.push('/dashboard');
-          return;
-        }
-        setError(authError.message || 'Invalid credentials');
+        setError(authError.message || 'Invalid email or password.');
         return;
       }
 
-      router.push('/dashboard');
-    } catch {
-      // Fallback
-      const fallbackRes = await fetch('/api/auth/demo-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail }),
-      });
-      if (fallbackRes.ok) {
+      if (data?.user) {
         router.push('/dashboard');
-        return;
+        router.refresh();
       }
-      setError('Unable to reach authentication service');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Unable to reach Supabase authentication service');
     } finally {
       setLoading(false);
     }
@@ -78,42 +47,6 @@ export default function LoginPage() {
     }
     handleLogin(email.trim(), password);
   };
-
-  const handleInstantDemo = () => {
-    setEmail('demo@entropyengine.dev');
-    setPassword('password123');
-    handleLogin('demo@entropyengine.dev', 'password123');
-  };
-
-  return (
-    <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-[var(--bg-surface-1)] p-8 sm:p-10 rounded-2xl shadow-rpg-md border border-[var(--border-subtle)] text-[var(--text-body)]">
-        <h1 className="font-serif font-bold text-3xl text-[var(--text-headline)] mb-2">
-          Welcome back.
-        </h1>
-        <p className="text-sm text-[var(--text-dim)] mb-6">
-          Inspect your chronicle and confront whatever has grown in your absence.
-        </p>
-
-        {/* Dummy Credentials Quick-Fill Card */}
-        <div className="mb-6 p-4 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] text-xs shadow-rpg-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-serif font-bold text-[var(--accent-amber)] uppercase tracking-wider text-[11px]">
-              Demo Credentials
-            </span>
-            <button
-              type="button"
-              onClick={handleInstantDemo}
-              className="text-[11px] font-medium text-[var(--accent-amber)] hover:text-amber-200 underline cursor-pointer"
-            >
-              1-Click Demo Login
-            </button>
-          </div>
-          <div className="text-[11px] text-[var(--text-dim)] space-y-1">
-            <div><span className="text-[var(--text-body)] font-semibold">Email:</span> <code className="text-sky-300 bg-[var(--bg-base)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">demo@entropyengine.dev</code></div>
-            <div><span className="text-[var(--text-body)] font-semibold">Password:</span> <code className="text-sky-300 bg-[var(--bg-base)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">password123</code></div>
-          </div>
-        </div>
 
         {error && (
           <div className="mb-6 p-3 rounded-lg bg-[var(--accent-brick)]/20 border border-[var(--accent-brick)]/40 text-red-300 text-xs font-medium">

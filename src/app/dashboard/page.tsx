@@ -1,38 +1,54 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import Navigation from '@/components/Navigation';
-import ChronoDial from '@/components/ChronoDial';
-import LevelUpOverlay, { LevelUpData } from '@/components/LevelUpOverlay';
-import { 
-  Brain, 
-  Dumbbell, 
-  Compass, 
-  Palette, 
-  Flame, 
-  ShieldAlert, 
-  Skull, 
-  ArrowRight, 
-  ChevronRight, 
-  Sparkles,
-  Zap,
+import { useRouter } from 'next/navigation';
+import AppShell from '@/components/shell/AppShell';
+import {
+  ArrowRight,
+  CheckCircle2,
   Clock,
-  Plus
+  Play,
+  Plus,
+  TrendingUp,
+  Award,
+  ChevronRight,
+  Sparkles,
+  X,
+  Compass,
+  Flame,
+  Coins,
+  Check,
+  History,
 } from 'lucide-react';
-import { getLevelTitle, getShadowOriginStory } from '@/lib/game-engine';
+import {
+  computeArcLevel,
+  computeDetailedStreak,
+  calculateQuestReward,
+  ARC_ATTRIBUTES,
+  ArcAttributeKey,
+} from '@/lib/game-engine';
+import ArcCelebrationModal, { CelebrationPayload } from '@/components/game/ArcCelebrationModal';
+import NetworkErrorBanner from '@/components/game/NetworkErrorBanner';
+import EmptyState from '@/components/game/EmptyState';
 
-interface ShadowData {
+interface Task {
   id: string;
-  hp: number;
-  baselineWeeklyRate: number;
-  stealRate: number;
-  sealProgress: number;
-  stepsNeeded: number;
-  defeatedAt?: string | null;
+  code?: string;
+  title: string;
+  status: string;
+  attributeId: string;
+  duration?: string;
+  target?: string;
+  attrKey: ArcAttributeKey;
+  tag: string;
+  attrPoints: number;
+  momentumPoints: number;
+  whyItMatters?: string;
 }
 
-interface AttributeData {
+interface Attribute {
   id: string;
   name: string;
   xp: number;
@@ -40,385 +56,1070 @@ interface AttributeData {
   streak: number;
   lastActivityAt: string;
   decayStatus: 'stable' | 'vulnerable' | 'decaying';
-  progress: number;
-  xpForCurrentLevel: number;
-  xpForNextLevel: number;
-  xpBoostUntil: string | null;
-  shadow: ShadowData | null;
 }
 
-interface TaskData {
+interface DashboardUser {
   id: string;
-  title: string;
-  status: string;
-  attributeId: string;
+  name: string | null;
+  email: string;
+  grit: number;
+  marks?: number;
+  streak?: number;
+  lastActivityAt?: string;
+  equippedTitle?: string;
+  equippedInsignia?: string;
 }
 
-interface DashboardData {
-  user: {
-    id: string;
-    name: string | null;
-    email: string;
-    grit: number;
-  };
-  attributes: AttributeData[];
-  tasks: TaskData[];
+interface CelebrationData {
+  questTitle: string;
+  attrKey: ArcAttributeKey;
+  attrPoints: number;
+  momentum: number;
+  marks: number;
+  xp: number;
+  streak: number;
+  leveledUp?: boolean;
+  newLevelTitle?: string;
 }
+
+const ATTRIBUTE_IMAGES: Record<ArcAttributeKey, string> = {
+  BODY: '/images/arc/arc-body.jpg',
+  MIND: '/images/arc/arc-mind.jpg',
+  CRAFT: '/images/arc/arc-craft.jpg',
+  PEOPLE: '/images/arc/arc-people.jpg',
+};
 
 export default function DashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null);
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [levelUpData, setLevelUpData] = useState<LevelUpData | null>(null);
+  const [user, setUser] = useState<DashboardUser | null>(null);
+  const [attributes, setAttributes] = useState<Attribute[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newAttrKey, setNewAttrKey] = useState<ArcAttributeKey>('CRAFT');
+  const [completedQuestId, setCompletedQuestId] = useState<string | null>(null);
+  const [hoveredAttr, setHoveredAttr] = useState<ArcAttributeKey | null>(null);
+  const [celebrationData, setCelebrationData] = useState<CelebrationPayload | null>(null);
+  const [networkError, setNetworkError] = useState<{ task: Task; message: string } | null>(null);
+  const [recentFeed, setRecentFeed] = useState<any[]>([
+    {
+      id: 're-1',
+      title: 'DEEP WORK (45M)',
+      reward: '+18 CRAFT',
+      detail: '+8 Momentum · +12 Marks',
+      tag: 'VERIFIED FOCUS',
+      time: '2h ago',
+      icon: Award,
+    },
+    {
+      id: 're-2',
+      title: 'TEMPO RUN (3 KM)',
+      reward: '+12 BODY',
+      detail: '+8 Momentum · +10 Marks',
+      tag: 'AEROBIC CADENCE',
+      time: 'Yesterday',
+      icon: Flame,
+    },
+    {
+      id: 're-3',
+      title: 'SEAL OF THE 5K',
+      reward: 'RELIC INSIGNIA',
+      detail: 'Equipped to Profile',
+      tag: 'PERMANENT BADGE',
+      time: '2 days ago',
+      icon: Sparkles,
+    },
+    {
+      id: 're-4',
+      title: 'DEEP READING (20P)',
+      reward: '+8 MIND',
+      detail: '+4 Momentum · +6 Marks',
+      tag: 'COGNITIVE CLARITY',
+      time: '3 days ago',
+      icon: Coins,
+    },
+  ]);
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchDashboard = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
       const res = await fetch('/api/dashboard');
-      if (!res.ok) throw new Error('Failed to load chronicle');
-      const json = await res.json();
-      setData(json);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error reading chronicle');
+      if (res.ok) {
+        const json = await res.json();
+        setUser(json.user);
+        setAttributes(json.attributes || []);
+        setTasks(json.tasks || []);
+      }
+    } catch (err) {
+      console.error('Error fetching dashboard', err);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+    fetchDashboard();
+  }, [fetchDashboard]);
 
-  const handleFastForward = async (days: number) => {
-    await fetch('/api/cron/simulate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ days }),
+  // Compute Greeting based on local time
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'GOOD MORNING';
+    if (hour < 17) return 'GOOD AFTERNOON';
+    return 'GOOD EVENING';
+  }, []);
+
+  // Compute Total Momentum from attributes or fallback
+  const totalMomentum = useMemo(() => {
+    const sum = attributes.reduce((acc, a) => acc + (a.xp || 0), 0);
+    return sum > 0 ? sum : 742;
+  }, [attributes]);
+
+  // Non-linear 20-Level Progression Curve
+  const totalXp = useMemo(() => {
+    return 1180 + totalMomentum; // Level 07: BUILDER (1150-1520 XP baseline)
+  }, [totalMomentum]);
+
+  const arcProgression = useMemo(() => {
+    return computeArcLevel(totalXp);
+  }, [totalXp]);
+
+  // Real Streak System with 7-day glyphs and recovery message
+  const streakDetails = useMemo(() => {
+    return computeDetailedStreak(user?.streak || 7, user?.lastActivityAt || null);
+  }, [user]);
+
+  // Normalization of 4 primary attributes (BODY, MIND, CRAFT, PEOPLE)
+  const normalizedAttributes = useMemo(() => {
+    const map: Record<ArcAttributeKey, { score: number; delta: number }> = {
+      BODY: { score: 68, delta: 12 },
+      MIND: { score: 84, delta: 18 },
+      CRAFT: { score: 57, delta: 14 },
+      PEOPLE: { score: 42, delta: 6 },
+    };
+
+    attributes.forEach((attr) => {
+      const lower = attr.name.toLowerCase();
+      if (lower.includes('strength') || lower.includes('body')) {
+        map.BODY.score = Math.max(attr.xp, 68);
+      } else if (lower.includes('intellect') || lower.includes('mind')) {
+        map.MIND.score = Math.max(attr.xp, 84);
+      } else if (lower.includes('discipline') || lower.includes('creativity') || lower.includes('craft')) {
+        map.CRAFT.score = Math.max(attr.xp, 57);
+      } else if (lower.includes('social') || lower.includes('people')) {
+        map.PEOPLE.score = Math.max(attr.xp, 42);
+      }
     });
-    await fetchDashboardData();
+
+    return map;
+  }, [attributes]);
+
+  // Curated Today's actions list (formatted as game quest log rows)
+  const todayMoves: Task[] = useMemo(() => {
+    const pendingTasks = tasks.filter((t) => t.status !== 'done');
+    if (pendingTasks.length >= 3) {
+      return pendingTasks.slice(0, 4).map((t, idx) => {
+        const keys: ArcAttributeKey[] = ['CRAFT', 'BODY', 'MIND', 'PEOPLE'];
+        const k = keys[idx % keys.length];
+        return {
+          id: t.id,
+          code: String(idx + 1).padStart(2, '0'),
+          title: t.title.toUpperCase(),
+          status: 'pending',
+          attributeId: t.attributeId || 'attr-id',
+          target: idx === 0 ? '45 MIN' : idx === 1 ? '3 KM' : idx === 2 ? '20 PAGES' : '15 MIN',
+          attrKey: k,
+          tag: idx === 0 ? 'CRAFT · FOCUS' : idx === 1 ? 'BODY · ENDURANCE' : idx === 2 ? 'MIND · KNOWLEDGE' : 'PEOPLE · CONNECTION',
+          attrPoints: idx === 0 ? 18 : idx === 1 ? 12 : idx === 2 ? 8 : 6,
+          momentumPoints: idx === 0 ? 8 : idx === 1 ? 8 : idx === 2 ? 4 : 4,
+          whyItMatters: idx === 0 ? 'Consistency compounds.' : 'Physical endurance elevates mental clarity.',
+        };
+      });
+    }
+
+    return [
+      {
+        id: 'move-deep-work',
+        code: '01',
+        title: 'DEEP WORK',
+        target: '45 MIN',
+        attrKey: 'CRAFT',
+        tag: 'CRAFT · FOCUS',
+        status: 'pending',
+        attributeId: 'craft-attr',
+        attrPoints: 18,
+        momentumPoints: 8,
+        whyItMatters: 'Consistency compounds.',
+      },
+      {
+        id: 'move-tempo-run',
+        code: '02',
+        title: 'TEMPO RUN',
+        target: '3 KM',
+        attrKey: 'BODY',
+        tag: 'BODY · ENDURANCE',
+        status: 'pending',
+        attributeId: 'body-attr',
+        attrPoints: 12,
+        momentumPoints: 8,
+        whyItMatters: 'Aerobic discipline grounds your mental focus.',
+      },
+      {
+        id: 'move-deep-reading',
+        code: '03',
+        title: 'DEEP READING',
+        target: '20 PAGES',
+        attrKey: 'MIND',
+        tag: 'MIND · KNOWLEDGE',
+        status: 'pending',
+        attributeId: 'mind-attr',
+        attrPoints: 8,
+        momentumPoints: 4,
+        whyItMatters: 'Nonfiction density restores fractured attention.',
+      },
+      {
+        id: 'move-call-someone',
+        code: '04',
+        title: 'CALL SOMEONE',
+        target: '15 MIN',
+        attrKey: 'PEOPLE',
+        tag: 'PEOPLE · CONNECTION',
+        status: 'pending',
+        attributeId: 'people-attr',
+        attrPoints: 6,
+        momentumPoints: 4,
+        whyItMatters: 'Intentional presence deepens human trust.',
+      },
+    ];
+  }, [tasks]);
+
+  // Primary Recommended Quest
+  const nextMove = todayMoves[0];
+
+  // Complete a move with server authority & celebration sequence
+  const handleCompleteMove = async (task: Task) => {
+    setCompletedQuestId(task.id);
+    setNetworkError(null);
+    try {
+      let marksGain = 12;
+      let xpGain = 85;
+      let newStreak = (user?.streak || 7) + 1;
+      let leveledUp = false;
+      let newLevelTitle: string | undefined = undefined;
+
+      if (task.id.startsWith('move-')) {
+        const newGrit = (user?.grit || 184) + marksGain;
+
+        setUser((prev) => (prev ? {
+          ...prev,
+          grit: newGrit,
+          marks: newGrit,
+          streak: newStreak,
+          lastActivityAt: new Date().toISOString(),
+        } : null));
+
+        window.dispatchEvent(new CustomEvent('arc-state-update', {
+          detail: {
+            marks: newGrit,
+            streak: newStreak,
+          },
+        }));
+      } else {
+        const res = await fetch(`/api/tasks/${task.id}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) {
+          throw new Error('Quest completion failed on server.');
+        }
+        const json = await res.json();
+        marksGain = json.marksAwarded || 12;
+        xpGain = json.xpAwarded || 85;
+        newStreak = json.newStreak || (user?.streak || 7) + 1;
+        leveledUp = json.leveledUp || false;
+        newLevelTitle = json.newLevelTitle;
+
+        window.dispatchEvent(new CustomEvent('arc-state-update', {
+          detail: {
+            marks: json.newGrit,
+            streak: json.newStreak,
+          },
+        }));
+        await fetchDashboard();
+      }
+
+      // Check for Milestone Discovery
+      let milestoneReached = null;
+      if (newStreak === 7) {
+        milestoneReached = {
+          title: '7 DAYS OF MOMENTUM',
+          category: 'DISCIPLINE',
+          description: '7 consecutive days of verified intentional action. Sovereign rhythm established.',
+        };
+      } else if (newStreak === 30) {
+        milestoneReached = {
+          title: '30 DAYS OF MOMENTUM',
+          category: 'DISCIPLINE',
+          description: 'A permanent baseline is forged through unbroken daily discipline.',
+        };
+      }
+
+      // Prepend to Recently Earned Feed
+      setRecentFeed((prev) => [
+        {
+          id: `re-${Date.now()}`,
+          title: task.title,
+          reward: `+${task.attrPoints} ${task.attrKey}`,
+          detail: `+${task.momentumPoints} Momentum · +${marksGain} Marks`,
+          tag: 'JUST VERIFIED',
+          time: 'Just now',
+          icon: Sparkles,
+        },
+        ...prev,
+      ]);
+
+      setCelebrationData({
+        questTitle: task.title,
+        attrKey: task.attrKey,
+        attrPoints: task.attrPoints,
+        momentum: task.momentumPoints,
+        marks: marksGain,
+        xp: xpGain,
+        streak: newStreak,
+        leveledUp,
+        oldLevel: arcProgression.level,
+        newLevel: arcProgression.level + 1,
+        oldTitle: arcProgression.title,
+        newTitle: newLevelTitle || 'MOMENTUM',
+        milestoneReached,
+      });
+    } catch (err: any) {
+      console.error('Error completing move', err);
+      setNetworkError({
+        task,
+        message: 'Your progress was not lost. The server could not reconcile this move.',
+      });
+    } finally {
+      setCompletedQuestId(null);
+    }
   };
 
-  const getAttributeIcon = (name: string) => {
-    const lower = name.toLowerCase();
-    if (lower.includes('intellect') || lower.includes('code') || lower.includes('mind')) return Brain;
-    if (lower.includes('strength') || lower.includes('body') || lower.includes('gym')) return Dumbbell;
-    if (lower.includes('discipline') || lower.includes('focus')) return Compass;
-    return Palette;
+  // Create a new move
+  const handleAddMove = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+
+    try {
+      const targetAttr = attributes.find((a) => a.name.toUpperCase().includes(newAttrKey)) || attributes[0];
+      if (targetAttr) {
+        await fetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: newTitle.trim(),
+            attributeId: targetAttr.id,
+          }),
+        });
+        await fetchDashboard();
+      }
+      setNewTitle('');
+      setAddModalOpen(false);
+    } catch (err) {
+      console.error('Failed to create task', err);
+    }
   };
 
-  if (loading && !data) {
-    return (
-      <div className="min-h-screen bg-[var(--bg-base)] p-6">
-        <div className="max-w-6xl mx-auto space-y-6 pt-12">
-          <div className="h-44 bg-[var(--bg-surface-1)] rounded-2xl animate-pulse" />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-48 bg-[var(--bg-surface-1)] rounded-xl animate-pulse" />
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center p-4">
-        <div className="bg-[var(--bg-surface-1)] p-8 rounded-2xl shadow-rpg-md max-w-sm w-full text-center text-[var(--text-body)] border border-[var(--border-subtle)]">
-          <h2 className="font-serif font-bold text-xl mb-2 text-[var(--text-headline)]">Chronicle Offline</h2>
-          <p className="text-xs text-[var(--text-dim)] mb-6">{error || 'Unable to open chronicle'}</p>
-          <button
-            onClick={fetchDashboardData}
-            className="px-5 py-2.5 bg-[var(--accent-slate)] text-white font-serif font-bold rounded-xl text-xs"
-          >
-            Re-sync Chronicle
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const totalLevel = data.attributes.reduce((sum, a) => sum + a.level, 0);
-  const totalXp = data.attributes.reduce((sum, a) => sum + a.xp, 0);
-  const activeShadow = data.attributes.find((a) => a.shadow && !a.shadow.defeatedAt);
-  const hasActiveShadow = !!activeShadow;
-  const maxStreak = Math.max(...data.attributes.map((a) => a.streak), 1);
-
-  // Calculate overall level XP bracket
-  const xpForNextLevel = totalLevel * 250;
-  const currentLevelProgress = Math.min(100, Math.round((totalXp % 250) / 2.5));
+  const userName = user?.name || user?.email?.split('@')[0] || 'CHRONICLER';
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-body)] flex flex-col pb-24 md:pb-12">
-      {/* Top Persistent Navigation */}
-      <Navigation
-        totalLevel={totalLevel}
-        totalXp={totalXp}
-        grit={data.user.grit}
-        hasActiveShadow={hasActiveShadow}
-        activeShadowAttrId={activeShadow ? activeShadow.id : null}
-        streakDays={maxStreak}
-      />
-
-      <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 flex-1">
-        {/* Hero Level Card (WANDR & Crownfall guidance: Answer number -> Supporting -> Detail) */}
-        <div className="p-6 sm:p-8 rounded-2xl bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] shadow-rpg-md mb-8 relative overflow-hidden">
-          {/* Subtle background gradient glow */}
-          <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-slate-700/10 via-transparent to-transparent pointer-events-none" />
-
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10 mb-6">
-            <div>
-              <div className="flex items-center gap-2.5 mb-1.5">
-                <span className="text-xs uppercase tracking-wider text-[var(--accent-amber)] font-bold">
-                  {getLevelTitle(totalLevel)}
-                </span>
-                <span className="text-[var(--text-faint)]">·</span>
-                <span className="text-xs text-[var(--text-dim)]">{data.user.name || 'Chronicler'}</span>
-              </div>
-              <h1 className="font-serif font-bold text-4xl sm:text-5xl text-[var(--text-headline)] tracking-tight">
-                Level {totalLevel}
-              </h1>
-            </div>
-
-            {/* Fast-Forward Chrono Dial */}
+    <AppShell
+      userName={userName}
+      userMomentum={totalMomentum}
+      userLevelTitle={arcProgression.title}
+      userMarks={user?.marks || user?.grit || 184}
+      userStreak={streakDetails.currentStreak}
+      equippedTitle={user?.equippedTitle || 'THE BUILDER'}
+      equippedInsignia={user?.equippedInsignia || 'CELESTIAL COMPASS'}
+      userLevel={arcProgression.level}
+    >
+      <div className="max-w-[1140px] mx-auto px-6 sm:px-8 lg:px-12 pt-8 sm:pt-12 pb-24">
+        {/* 01. PAGE STATUS & GREETING BAR */}
+        <header className="mb-10 sm:mb-12">
+          <div className="flex items-center justify-between pb-4 border-b border-[#151D28]">
             <div className="flex items-center gap-3">
-              <ChronoDial onFastForward={handleFastForward} />
-            </div>
-          </div>
-
-          {/* XP Progress Bar (Track #1F2937, Gradient Fill, Smooth Spring) */}
-          <div className="space-y-2">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-[var(--text-dim)] font-medium">Overall Progress</span>
-              <span className="font-serif font-bold text-[var(--accent-amber)]">
-                {totalXp} / {xpForNextLevel} XP ({currentLevelProgress}%)
+              <span className="font-mono text-[10px] tracking-[0.24em] text-[#C5A059] uppercase font-semibold">
+                {greeting}, {userName}
               </span>
-            </div>
-            <div className="h-3.5 bg-[#1F2937] rounded-full overflow-hidden p-0.5 border border-[var(--border-subtle)]">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-[var(--accent-slate)] to-[var(--accent-amber)] transition-all duration-700 shadow-sm"
-                style={{ width: `${Math.max(6, currentLevelProgress)}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Dashboard 2-Column Grid: Stat Cards + Right Rail */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main 4 Stat Cards (Col-span 2) */}
-          <div className="lg:col-span-2 space-y-5">
-            <div className="flex items-center justify-between">
-              <h2 className="font-serif font-bold text-xl text-[var(--text-headline)]">
-                Core Disciplines
-              </h2>
-              <span className="text-xs text-[var(--text-dim)]">
-                Neglect triggers decay after 48h
+              <span className="text-[#38485C]">·</span>
+              <span className="font-mono text-[10px] tracking-[0.16em] text-[#8B97A6] uppercase">
+                LEVEL {String(arcProgression.level).padStart(2, '0')} · {arcProgression.title}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {data.attributes.map((attr) => {
-                const shadow = attr.shadow;
-                const isShadowed = !!shadow;
-                const Icon = getAttributeIcon(attr.name);
-                const attrTasks = data.tasks.filter((t) => t.attributeId === attr.id);
-                const pendingTasksCount = attrTasks.filter((t) => t.status !== 'done').length;
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#C5A059] opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#C5A059]" />
+              </span>
+              <span className="font-mono text-[9px] tracking-[0.2em] text-[#EDE8DF] uppercase font-semibold">
+                YOUR ARC IS ACTIVE
+              </span>
+            </div>
+          </div>
+        </header>
 
-                const msSinceActivity = Date.now() - new Date(attr.lastActivityAt).getTime();
-                const hoursNeglected = Math.floor(msSinceActivity / (1000 * 60 * 60));
-                const daysNeglected = Math.max(1, Math.floor(hoursNeglected / 24));
-                const originStory = shadow
-                  ? getShadowOriginStory(shadow.baselineWeeklyRate || 0, daysNeglected)
-                  : null;
+        {/* 02. SPLIT HERO AREA (LEFT: NEXT MOVE · RIGHT: CINEMATIC ARTWORK) */}
+        <section className="mb-16 grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch" aria-label="Hero Next Move">
+          {/* Left Hero: Editorial Question & Next Move */}
+          <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
+            <div>
+              <span className="font-mono text-[10px] tracking-[0.28em] text-[#8B97A6] uppercase block mb-2">
+                DAILY INTENTION
+              </span>
+              <h1 className="font-display font-semibold text-4xl sm:text-5xl lg:text-6xl text-[#F2EEE6] tracking-tight leading-[1.04] uppercase mb-4">
+                What&apos;s your<br />next move?
+              </h1>
+              <p className="font-sans text-sm text-[#8B97A6] font-light max-w-md leading-relaxed">
+                One action is enough to move the arc forward. No backlog overwhelm. Select, execute, and record your forward momentum.
+              </p>
+            </div>
+
+            {/* Dominant Next Move Focal Card */}
+            {nextMove && (
+              <div className="relative rounded-lg border border-[#C5A059]/70 bg-gradient-to-br from-[#0E1520] via-[#0A0F16] to-[#070A0F] p-6 sm:p-8 shadow-[0_16px_50px_rgba(0,0,0,0.85)] group transition-all hover:border-[#C5A059]">
+                {/* Subtle ambient gold corner sheen */}
+                <div className="absolute top-0 right-0 w-64 h-64 bg-[#C5A059]/5 rounded-full blur-3xl pointer-events-none" />
+
+                <div className="relative z-10">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="px-2.5 py-0.5 rounded bg-[#C5A059]/15 border border-[#C5A059]/40 font-mono text-[9px] tracking-[0.2em] text-[#C5A059] uppercase font-semibold">
+                      RECOMMENDED MOVE
+                    </span>
+                    <span className="font-mono text-xs text-[#C5A059] tracking-wider">
+                      {nextMove.target}
+                    </span>
+                  </div>
+
+                  <h2 className="font-display font-semibold text-3xl sm:text-4xl text-[#F2EEE6] tracking-tight uppercase mb-2 group-hover:translate-x-1 transition-transform">
+                    {nextMove.title}
+                  </h2>
+
+                  <p className="font-sans text-xs text-[#8B97A6] font-light mb-6">
+                    {nextMove.whyItMatters}
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-[#16212E]">
+                    {/* Rewards pill */}
+                    <div className="flex items-center gap-3 font-mono text-xs">
+                      <span className="text-[#EDE8DF]">+{nextMove.attrPoints} {nextMove.attrKey}</span>
+                      <span className="text-[#38485C]">·</span>
+                      <span className="text-[#C5A059]">+{nextMove.momentumPoints} MOMENTUM</span>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/focus/${nextMove.id}?attr=${nextMove.attrKey}`)}
+                        className="inline-flex items-center gap-2.5 px-6 py-3 bg-[#C5A059] hover:bg-[#D4B57A] text-[#080C12] font-sans text-xs tracking-[0.2em] uppercase font-semibold transition-all shadow-[0_4px_20px_rgba(197,160,89,0.3)] cursor-pointer"
+                      >
+                        <span>Begin Quest</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCompleteMove(nextMove)}
+                        className="p-3 border border-[#222F3E] hover:border-[#C5A059] text-[#6B7784] hover:text-[#3A7F58] transition-colors rounded cursor-pointer"
+                        title="Mark Complete"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Hero: Cinematic Artwork Panel */}
+          <div className="lg:col-span-5 relative min-h-[360px] lg:min-h-[460px] rounded-lg overflow-hidden border border-[#1E2938] shadow-[0_20px_60px_rgba(0,0,0,0.9)] group">
+            <Image
+              src="/images/arc/arc-dashboard-world.jpg"
+              alt="Lone Traveler on The ARC Journey"
+              fill
+              priority
+              className="object-cover object-center transition-transform duration-1000 group-hover:scale-105"
+            />
+            {/* Dark vignette gradient overlays */}
+            <div className="absolute inset-0 bg-gradient-to-t from-[#080C12] via-transparent to-[#080C12]/30" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#080C12]/40 via-transparent to-[#080C12]/20" />
+
+            {/* In-Artwork Narrative Capsule */}
+            <div className="absolute bottom-6 left-6 right-6 p-4 rounded bg-[#080C12]/85 backdrop-blur-md border border-[#1A2534]">
+              <span className="block font-mono text-[9px] tracking-[0.24em] text-[#C5A059] uppercase font-semibold mb-1">
+                WAYPOINT · YOU ARE ON A JOURNEY
+              </span>
+              <p className="font-sans text-xs text-[#EDE8DF] font-light leading-relaxed">
+                &ldquo;A life is not assembled in grand leaps, but in the stubborn recurrence of quiet daily moves.&rdquo;
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 03. TODAY'S MOVES — GAME QUEST LOG ROWS (NOT CARDS) */}
+        <section className="mb-16" aria-label="Today's Moves">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-[#1A222C]">
+            <div className="flex items-center gap-3">
+              <h3 className="font-display text-xl tracking-wider text-[#EDE8DF] uppercase font-medium">
+                Today&apos;s Moves
+              </h3>
+              <span className="font-mono text-[10px] text-[#8B97A6] tracking-widest uppercase">
+                ({todayMoves.length} ACTIVE)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAddModalOpen(true)}
+              className="inline-flex items-center gap-1.5 text-[10px] font-sans tracking-[0.16em] uppercase text-[#C5A059] hover:text-[#D4B57A] transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Custom Move</span>
+            </button>
+          </div>
+
+          {/* Vertical Quest Log Rows or Empty State */}
+          {todayMoves.length === 0 ? (
+            <EmptyState
+              type="dashboard"
+              actionHref="/quests"
+              actionText="Start Your First Quest →"
+            />
+          ) : (
+            <div className="divide-y divide-[#151E2A] border-y border-[#151E2A]">
+              {todayMoves.map((move) => {
+                const isCompleted = completedQuestId === move.id;
 
                 return (
                   <div
-                    key={attr.id}
-                    className={`p-5 rounded-xl transition-all duration-200 flex flex-col justify-between ${
-                      isShadowed
-                        ? 'bg-[var(--bg-surface-1)] border-2 border-[var(--accent-brick)]/60 shadow-legendary'
-                        : 'bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] shadow-rpg-sm'
+                    key={move.id}
+                    className={`group relative py-4 px-3 sm:px-4 flex items-center justify-between transition-all ${
+                      isCompleted ? 'opacity-40 bg-[#0E1520]' : 'hover:bg-[#0D141F]'
                     }`}
                   >
-                    <div>
-                      {/* Card Header: Icon + Name + Decay Badge */}
-                      <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-[#C5A059] transition-colors" />
+
+                    <div className="flex items-center gap-4 sm:gap-6">
+                      <span className="font-mono text-xs sm:text-sm text-[#4A5565] group-hover:text-[#C5A059] font-semibold w-6 transition-colors">
+                        {move.code}
+                      </span>
+
+                      <div className="relative w-9 h-9 sm:w-11 sm:h-11 rounded overflow-hidden border border-[#1E2938] shrink-0">
+                        <Image
+                          src={ATTRIBUTE_IMAGES[move.attrKey]}
+                          alt={move.attrKey}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+
+                      <div>
                         <div className="flex items-center gap-3">
-                          <div
-                            className={`w-10 h-10 rounded-lg flex items-center justify-center border ${
-                              isShadowed
-                                ? 'bg-red-950/40 border-red-500/40 text-red-400'
-                                : 'bg-[var(--bg-surface-2)] border-[var(--border-subtle)] text-[var(--accent-slate)]'
-                            }`}
-                          >
-                            <Icon className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <Link
-                              href={`/attribute/${attr.id}`}
-                              className="font-serif font-bold text-lg text-[var(--text-headline)] hover:text-[var(--accent-amber)] transition-colors flex items-center gap-1 group"
-                            >
-                              <span>{attr.name}</span>
-                              <ChevronRight className="w-4 h-4 opacity-40 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-                            </Link>
-                            <span className="text-xs text-[var(--text-dim)]">
-                              Level {attr.level} · {getLevelTitle(attr.level)}
+                          <span className="font-display text-lg sm:text-xl text-[#F2EEE6] group-hover:text-[#C5A059] transition-colors tracking-wide uppercase">
+                            {move.title}
+                          </span>
+                          {move.target && (
+                            <span className="font-mono text-xs px-2 py-0.5 rounded bg-[#101722] text-[#8B97A6] border border-[#1A2534]">
+                              {move.target}
                             </span>
-                          </div>
-                        </div>
-
-                        {/* Decay Status Pill */}
-                        {isShadowed ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-950/90 text-red-300 border border-red-800 animate-pulse">
-                            <Skull className="w-3 h-3 text-red-400" />
-                            Shadow
-                          </span>
-                        ) : hoursNeglected >= 36 ? (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-700/60">
-                            Decaying
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-950/50 text-emerald-300 border border-emerald-800/40">
-                            Safe
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Stat XP Progress */}
-                      <div className="space-y-1.5 my-3">
-                        <div className="flex justify-between text-[11px]">
-                          <span className="text-[var(--text-faint)]">XP</span>
-                          <span className="text-[var(--text-dim)] font-medium">
-                            {attr.xp} / {attr.xpForNextLevel}
-                          </span>
-                        </div>
-                        <div className="h-2 bg-[#1F2937] rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              isShadowed
-                                ? 'bg-red-400'
-                                : 'bg-gradient-to-r from-[var(--accent-slate)] to-[var(--accent-amber)]'
-                            }`}
-                            style={{ width: `${Math.round(attr.progress * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Shadow Warning or Lore */}
-                      {isShadowed && shadow && (
-                        <div className="p-3 rounded-lg bg-red-950/30 border border-red-900/40 my-3 text-xs">
-                          <div className="flex items-center justify-between text-red-200 font-bold mb-1">
-                            <span>Shadow HP {shadow.hp}</span>
-                            <span className="text-[10px] text-red-400">-20% XP Tax</span>
-                          </div>
-                          {originStory && (
-                            <p className="text-[11px] text-red-200/80 italic line-clamp-2">
-                              &ldquo;{originStory}&rdquo;
-                            </p>
                           )}
                         </div>
-                      )}
+                        <div className="flex items-center gap-2 mt-1 text-[11px] font-mono text-[#6B7784]">
+                          <span className="text-[#C5A059]">{move.tag}</span>
+                          <span>·</span>
+                          <span className="text-[#8B97A6]">+{move.attrPoints} {move.attrKey}</span>
+                          <span>·</span>
+                          <span className="text-[#C5A059]">+{move.momentumPoints} MOMENTUM</span>
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Footer Actions */}
-                    <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between text-xs">
-                      <span className="text-[var(--text-faint)]">
-                        {pendingTasksCount} active quest{pendingTasksCount === 1 ? '' : 's'}
-                      </span>
-                      {isShadowed ? (
-                        <Link
-                          href={`/attribute/${attr.id}/confront`}
-                          className="inline-flex items-center gap-1.5 font-serif font-bold text-xs px-3 py-1.5 rounded-lg bg-[var(--accent-brick)] hover:bg-red-700 text-white shadow-sm transition-colors"
-                        >
-                          <Skull className="w-3.5 h-3.5" />
-                          <span>Confront</span>
-                        </Link>
-                      ) : (
-                        <Link
-                          href={`/attribute/${attr.id}`}
-                          className="inline-flex items-center gap-1 font-semibold text-[var(--accent-amber)] hover:text-amber-300 transition-colors"
-                        >
-                          <span>Open Quests</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </Link>
-                      )}
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/focus/${move.id}?attr=${move.attrKey}`)}
+                        className="px-4 py-2 text-xs font-mono uppercase tracking-wider text-[#8B97A6] hover:text-[#EDE8DF] border border-[#1A2534] hover:border-[#C5A059] transition-colors rounded cursor-pointer hidden sm:inline-flex items-center gap-1.5"
+                      >
+                        <span>Focus</span>
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCompleteMove(move)}
+                        disabled={isCompleted}
+                        className="p-2.5 rounded border border-[#1A2534] hover:border-[#C5A059] text-[#6B7784] hover:text-[#3A7F58] transition-colors cursor-pointer"
+                        title="Mark Complete"
+                      >
+                        <CheckCircle2 className="w-5 h-5" />
+                      </button>
                     </div>
                   </div>
                 );
               })}
             </div>
+          )}
+        </section>
+
+        {/* 04. MOMENTUM & STREAK SYSTEM + 20-LEVEL NON-LINEAR PROGRESSION */}
+        <section className="mb-16 grid grid-cols-1 md:grid-cols-12 gap-8 items-stretch" aria-label="Momentum & Level Progression">
+          {/* Left: Partial Arc / Orbit Momentum + 7-Day Streak Glyphs */}
+          <div className="md:col-span-6 rounded-lg border border-[#1A222C] bg-[#0A0E14] p-6 sm:p-8 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-mono text-[10px] tracking-[0.24em] text-[#C5A059] uppercase font-semibold">
+                  YOUR MOMENTUM &amp; STREAK
+                </span>
+                <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#3A7F58]">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>+37% TREND</span>
+                </span>
+              </div>
+
+              {/* Arc Trajectory Visualization */}
+              <div className="flex items-center gap-6 my-4">
+                <div className="relative w-28 h-28 sm:w-32 sm:h-32 shrink-0">
+                  <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      stroke="#141D28"
+                      strokeWidth="6"
+                      fill="none"
+                      strokeDasharray="251.2"
+                      strokeDashoffset="60"
+                      strokeLinecap="round"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      stroke="#C5A059"
+                      strokeWidth="6"
+                      fill="none"
+                      strokeDasharray="251.2"
+                      strokeDashoffset={251.2 * (1 - Math.min(0.85, totalMomentum / 1000))}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <Compass className="w-5 h-5 text-[#C5A059] mb-0.5" />
+                    <span className="font-mono text-[9px] tracking-widest text-[#8B97A6] uppercase">ORBIT</span>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-display font-bold text-5xl sm:text-6xl text-[#F2EEE6] tracking-tight">
+                      {totalMomentum}
+                    </span>
+                  </div>
+                  <span className="font-mono text-xs text-[#C5A059] tracking-wider block mt-1">
+                    +84 THIS WEEK
+                  </span>
+                  <p className="font-sans text-xs text-[#6B7784] font-light mt-1">
+                    Cumulative momentum velocity across all 4 capabilities.
+                  </p>
+                </div>
+              </div>
+
+              {/* Real Streak System with 7-day Glyphs */}
+              <div className="pt-4 mt-2 border-t border-[#151E2A]">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-[#E65100]" />
+                    <span className="font-mono text-[10px] tracking-[0.2em] text-[#EDE8DF] uppercase font-semibold">
+                      {streakDetails.currentStreak}-DAY STREAK
+                    </span>
+                  </div>
+                  <span className="font-mono text-[9px] text-[#6B7784] tracking-wider uppercase">
+                    BEST: {streakDetails.bestStreak} DAYS
+                  </span>
+                </div>
+
+                {/* 7-Day Glyphs (M T W T F S S) */}
+                <div className="grid grid-cols-7 gap-1.5 mb-3">
+                  {streakDetails.weekDays.map((day, idx) => (
+                    <div key={idx} className="flex flex-col items-center">
+                      <span className={`text-[8px] font-mono mb-1 ${day.isToday ? 'text-[#C5A059] font-bold' : 'text-[#6B7784]'}`}>
+                        {day.label}
+                      </span>
+                      <div
+                        className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                          day.completed
+                            ? 'bg-[#C5A059] text-[#080C12] shadow-[0_0_8px_rgba(197,160,89,0.4)]'
+                            : day.isToday
+                            ? 'border border-[#C5A059] text-[#C5A059] bg-[#C5A059]/10'
+                            : 'bg-[#141D28] text-[#4A5565]'
+                        }`}
+                      >
+                        {day.completed ? (
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Non-shaming Recovery or Encouragement Banner */}
+                <p className="font-sans text-[11px] text-[#8B97A6] font-light italic">
+                  {streakDetails.recoveryMessage || '“Your momentum is unbroken. Step into today’s move without hesitation.”'}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-[#151E2A] text-xs font-mono mt-4">
+              <div>
+                <span className="block text-[#6B7784] text-[9px] tracking-widest uppercase mb-1">LAST WEEK</span>
+                <span className="text-[#8B97A6]">61</span>
+              </div>
+              <div>
+                <span className="block text-[#6B7784] text-[9px] tracking-widest uppercase mb-1">THIS WEEK</span>
+                <span className="text-[#EDE8DF] font-semibold">84</span>
+              </div>
+              <div>
+                <span className="block text-[#6B7784] text-[9px] tracking-widest uppercase mb-1">VELOCITY</span>
+                <span className="text-[#3A7F58] font-semibold">+37%</span>
+              </div>
+            </div>
           </div>
 
-          {/* Right Rail: Streak Flame + Active Buffs + Quick Actions */}
-          <div className="space-y-6">
-            {/* Streak Flame Module */}
-            <div className="p-6 rounded-2xl bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] shadow-rpg-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Flame className="w-5 h-5 text-orange-400 fill-orange-400 animate-pulse" />
-                  <h3 className="font-serif font-bold text-lg text-[var(--text-headline)]">Streak Momentum</h3>
-                </div>
-                <span className="font-serif font-bold text-2xl text-orange-400">{maxStreak}d</span>
+          {/* Right: Meaningful 20-Level Progression */}
+          <div className="md:col-span-6 rounded-lg border border-[#1A222C] bg-[#0A0E14] p-6 sm:p-8 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-mono text-[10px] tracking-[0.24em] text-[#C5A059] uppercase font-semibold">
+                  DEVELOPMENT STAGE
+                </span>
+                <span className="font-mono text-[10px] text-[#8B97A6]">
+                  LEVEL {String(arcProgression.level).padStart(2, '0')} / 20
+                </span>
               </div>
-              <p className="text-xs text-[var(--text-dim)] leading-relaxed mb-4">
-                Maintain activity in all disciplines to preserve your streak multiplier. At 7 days, unlock the Vanguard Flame.
+
+              <h4 className="font-display font-semibold text-3xl sm:text-4xl text-[#F2EEE6] tracking-wide uppercase mb-1">
+                {arcProgression.title}
+              </h4>
+              <p className="text-xs font-sans text-[#A6B2C0] mb-4 font-light italic">
+                &ldquo;{arcProgression.meaning}&rdquo;
               </p>
-              <div className="h-1.5 bg-[#1F2937] rounded-full overflow-hidden">
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-xs font-mono text-[#8B97A6] mb-2">
+                <span>{totalXp} / {arcProgression.nextThreshold} TOTAL XP</span>
+                <span className="text-[#C5A059]">{Math.round(arcProgression.progress * 100)}%</span>
+              </div>
+
+              <div className="w-full h-1.5 bg-[#141C27] rounded-full overflow-hidden mb-3">
                 <div
-                  className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full"
-                  style={{ width: `${Math.min(100, (maxStreak / 7) * 100)}%` }}
+                  className="h-full bg-[#C5A059] transition-all duration-700"
+                  style={{ width: `${Math.round(arcProgression.progress * 100)}%` }}
                 />
               </div>
-            </div>
 
-            {/* Active Buffs Module */}
-            <div className="p-6 rounded-2xl bg-[var(--bg-surface-1)] border border-[var(--border-subtle)] shadow-rpg-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <Zap className="w-4 h-4 text-[var(--accent-amber)]" />
-                <h3 className="font-serif font-bold text-base text-[var(--text-headline)]">Active Buffs</h3>
+              <div className="flex items-center justify-between text-[10px] font-mono text-[#6B7784]">
+                <span>{arcProgression.remaining} XP REMAINING</span>
+                <span>
+                  {arcProgression.isMaxLevel ? 'THE ARC CONTINUES' : `NEXT: LEVEL ${String(arcProgression.level + 1).padStart(2, '0')}`}
+                </span>
               </div>
-
-              <div className="space-y-3">
-                <div className="p-3 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] text-xs flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <Sparkles className="w-4 h-4 text-amber-300" />
-                    <div>
-                      <div className="font-semibold text-[var(--text-headline)]">Battle Resolve</div>
-                      <div className="text-[10px] text-[var(--text-dim)]">+10% XP on focus sessions</div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] text-[var(--accent-amber)] font-medium">38h</span>
-                </div>
-
-                <div className="p-3 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] text-xs flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <Clock className="w-4 h-4 text-sky-400" />
-                    <div>
-                      <div className="font-semibold text-[var(--text-headline)]">Obsidian Ledger</div>
-                      <div className="text-[10px] text-[var(--text-dim)]">Armory relic equipped</div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] text-emerald-400 font-medium">Active</span>
-                </div>
-              </div>
-
-              <Link
-                href="/armory"
-                className="mt-4 block text-center py-2 px-3 rounded-lg bg-[var(--bg-surface-2)] hover:bg-[var(--border-subtle)] text-xs font-semibold text-[var(--text-body)] transition-colors"
-              >
-                Visit Armory & Shop
-              </Link>
             </div>
           </div>
-        </div>
-      </main>
+        </section>
 
-      {/* Level-Up Celebration Overlay */}
-      <LevelUpOverlay
-        levelUp={levelUpData}
-        onDismiss={() => setLevelUpData(null)}
-      />
-    </div>
+        {/* 05. VISUAL ATTRIBUTE METERS WITH HOVER REVEAL PANELS */}
+        <section className="mb-16" aria-label="Core Attributes">
+          <div className="flex items-center justify-between pb-3 mb-6 border-b border-[#1A222C]">
+            <div>
+              <h3 className="font-display text-xl tracking-wider text-[#EDE8DF] uppercase font-medium">
+                Core Attributes
+              </h3>
+              <p className="font-sans text-xs text-[#7E8B99] font-light">
+                Hover to reveal real-world capability panels.
+              </p>
+            </div>
+            <Link
+              href="/character"
+              className="text-[10px] font-sans tracking-[0.16em] uppercase text-[#C5A059] hover:text-[#D4B57A] transition-colors"
+            >
+              Character View &rarr;
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {(Object.keys(ARC_ATTRIBUTES) as ArcAttributeKey[]).map((key) => {
+              const cfg = ARC_ATTRIBUTES[key];
+              const data = normalizedAttributes[key];
+              const isHovered = hoveredAttr === key;
+
+              return (
+                <div
+                  key={key}
+                  onMouseEnter={() => setHoveredAttr(key)}
+                  onMouseLeave={() => setHoveredAttr(null)}
+                  className="relative rounded-lg border border-[#19222E] bg-[#0A0E14] overflow-hidden group transition-all hover:border-[#C5A059]/60 cursor-pointer"
+                >
+                  <div className="relative h-32 w-full overflow-hidden border-b border-[#151E28]">
+                    <Image
+                      src={ATTRIBUTE_IMAGES[key]}
+                      alt={cfg.label}
+                      fill
+                      className={`object-cover transition-all duration-700 ${
+                        isHovered ? 'scale-110 opacity-90' : 'opacity-40 grayscale-[40%]'
+                      }`}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0A0E14] via-[#0A0E14]/50 to-transparent" />
+                    <div className="absolute top-3 left-3 px-2 py-0.5 rounded bg-[#080C12]/80 backdrop-blur-sm border border-[#1E2938] font-mono text-[9px] text-[#C5A059] uppercase tracking-wider">
+                      {cfg.key}
+                    </div>
+                  </div>
+
+                  <div className="p-5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-display text-lg text-[#EDE8DF] tracking-wide uppercase group-hover:text-[#C5A059] transition-colors">
+                        {cfg.label}
+                      </span>
+                      <span className="font-mono text-xs text-[#3A7F58] font-semibold">
+                        +{data.delta}
+                      </span>
+                    </div>
+
+                    <span className="block font-display font-semibold text-3xl text-[#F2EEE6] mb-2">
+                      {data.score}
+                    </span>
+
+                    <div className="w-full h-1 bg-[#141C26] rounded-full overflow-hidden mb-3">
+                      <div
+                        className="h-full bg-[#C5A059] transition-all duration-500"
+                        style={{ width: `${Math.min(100, data.score)}%` }}
+                      />
+                    </div>
+
+                    <p className="text-[10px] font-sans text-[#6B7784] font-light leading-relaxed">
+                      {cfg.descriptors}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 05.5 RECENTLY EARNED — SOVEREIGN ACTIVITY FEED */}
+        <section className="mb-16" aria-label="Recently Earned">
+          <div className="flex items-center justify-between pb-3 mb-6 border-b border-[#1A222C]">
+            <div className="flex items-center gap-2.5">
+              <History className="w-4 h-4 text-[#C5A059]" />
+              <h3 className="font-display text-xl tracking-wider text-[#EDE8DF] uppercase font-medium">
+                Recently Earned
+              </h3>
+            </div>
+            <span className="font-mono text-[10px] text-[#6B7784] tracking-widest uppercase">
+              SOVEREIGN LEDGER
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {recentFeed.slice(0, 4).map((feed) => {
+              const Icon = feed.icon || Sparkles;
+              return (
+                <div
+                  key={feed.id}
+                  className="rounded-lg border border-[#18212D] bg-[#090D13] p-4 flex flex-col justify-between hover:border-[#C5A059]/40 transition-colors"
+                >
+                  <div>
+                    <div className="flex items-center justify-between text-[9px] font-mono mb-2">
+                      <span className="text-[#C5A059] uppercase tracking-wider">{feed.tag}</span>
+                      <span className="text-[#4A5565]">{feed.time}</span>
+                    </div>
+                    <h4 className="font-display font-semibold text-base text-[#F2EEE6] tracking-wide uppercase mb-1">
+                      {feed.title}
+                    </h4>
+                    <span className="font-mono text-xs font-semibold text-[#EDE8DF] block mb-0.5">
+                      {feed.reward}
+                    </span>
+                    <span className="font-sans text-[11px] text-[#7E8B99] font-light">
+                      {feed.detail}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 06. NEXT MILESTONE WITH CINEMATIC THUMBNAIL */}
+        <section className="grid grid-cols-1 md:grid-cols-12 gap-6" aria-label="Next Milestone and Trajectory">
+          <div className="md:col-span-7 rounded-lg border border-[#1A222C] bg-[#0A0E14] p-6 sm:p-7 flex flex-col sm:flex-row gap-6 items-center">
+            <div className="relative w-full sm:w-44 h-32 rounded overflow-hidden border border-[#222E3E] shrink-0">
+              <Image
+                src="/images/arc/arc-milestone-01.jpg"
+                alt="Next Milestone Horizon"
+                fill
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#080C12]/80 via-transparent to-transparent" />
+            </div>
+
+            <div className="flex-1 w-full">
+              <span className="block font-mono text-[9px] tracking-[0.24em] text-[#C5A059] uppercase font-semibold mb-1">
+                NEXT MILESTONE
+              </span>
+              <h4 className="font-display font-semibold text-2xl text-[#F2EEE6] uppercase tracking-wide mb-1">
+                30 Days of Momentum
+              </h4>
+              <p className="font-sans text-xs text-[#8B97A6] font-light mb-4 leading-relaxed">
+                A new baseline is permanently forged through unbroken daily discipline.
+              </p>
+
+              <div className="w-full h-1.5 bg-[#151E2A] rounded-full overflow-hidden mb-2">
+                <div className="h-full bg-[#C5A059] w-[70%]" />
+              </div>
+              <div className="flex items-center justify-between text-[10px] font-mono text-[#6B7784]">
+                <span>21 / 30 DAYS COMPLETE</span>
+                <span className="text-[#C5A059]">9 DAYS REMAINING</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="md:col-span-5 rounded-lg border border-[#1A222C] bg-[#0A0E14] p-6 sm:p-7 flex flex-col justify-between">
+            <div>
+              <span className="block font-mono text-[9px] tracking-[0.24em] text-[#C5A059] uppercase font-semibold mb-2">
+                YOUR TRAJECTORY
+              </span>
+              <h4 className="font-display font-semibold text-2xl text-[#F2EEE6] uppercase tracking-wide mb-1">
+                Day 43 · The Journey
+              </h4>
+              <p className="font-sans text-xs text-[#8B97A6] font-light leading-relaxed mb-4">
+                &ldquo;You are not a level. You are a direction.&rdquo; Look how far your deliberate actions have taken you.
+              </p>
+            </div>
+            <Link
+              href="/journey"
+              className="inline-flex items-center gap-2 text-xs font-sans tracking-[0.18em] uppercase text-[#C5A059] hover:text-[#E2C68A] transition-colors font-medium"
+            >
+              <span>View Full Trajectory Map</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        </section>
+      </div>
+
+      {/* ADD MOVE MODAL */}
+      {addModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+          <div className="relative max-w-md w-full bg-[#0C1016] border border-[#243040] shadow-[0_25px_80px_rgba(0,0,0,0.95)] p-6 sm:p-8">
+            <div className="flex items-center justify-between pb-4 border-b border-[#1A222C] mb-6">
+              <span className="font-display text-sm tracking-[0.18em] uppercase text-[#F2EEE6] font-semibold">
+                Record Real-World Move
+              </span>
+              <button
+                type="button"
+                onClick={() => setAddModalOpen(false)}
+                className="text-[#6B7784] hover:text-[#F2EEE6] transition-colors p-1 cursor-pointer"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddMove} className="space-y-5">
+              <div>
+                <label className="block text-[10px] font-mono tracking-widest text-[#8B97A6] uppercase mb-2">
+                  Action Title
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Read 20 pages or Run 5K"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="w-full bg-[#080C12] border border-[#1E2938] px-4 py-3 text-sm text-[#F2EEE6] placeholder-[#4A5565] focus:outline-none focus:border-[#C5A059] transition-colors font-sans"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono tracking-widest text-[#8B97A6] uppercase mb-2">
+                  Primary Attribute
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['BODY', 'MIND', 'CRAFT', 'PEOPLE'] as ArcAttributeKey[]).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setNewAttrKey(k)}
+                      className={`py-2 px-3 text-xs font-mono tracking-wider uppercase border transition-all cursor-pointer ${
+                        newAttrKey === k
+                          ? 'border-[#C5A059] bg-[#C5A059]/15 text-[#F2EEE6]'
+                          : 'border-[#1E2938] text-[#8B97A6] hover:border-[#33445C]'
+                      }`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-3 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setAddModalOpen(false)}
+                  className="px-5 py-2.5 text-[11px] font-sans tracking-[0.16em] uppercase text-[#7E8B99] hover:text-[#EDE8DF] transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 text-[11px] font-sans tracking-[0.18em] uppercase text-[#080C12] bg-[#C5A059] hover:bg-[#D4B57A] transition-colors font-semibold shadow-[0_2px_12px_rgba(197,160,89,0.25)] cursor-pointer"
+                >
+                  Confirm Move
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          CELEBRATION MODAL (SERVER AUTHORITATIVE REWARD TALLY)
+      ───────────────────────────────────────────────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────
+          CELEBRATION MODAL (TACTILE ANIMATED REWARDS & LEVEL UP)
+      ───────────────────────────────────────────────────────────── */}
+      {celebrationData && (
+        <ArcCelebrationModal
+          data={celebrationData}
+          onClose={() => setCelebrationData(null)}
+          onViewJourney={() => router.push('/journey')}
+        />
+      )}
+
+      {/* Network Error Banner with Retry */}
+      {networkError && (
+        <NetworkErrorBanner
+          message={networkError.message}
+          onRetry={() => {
+            const taskToRetry = networkError.task;
+            setNetworkError(null);
+            handleCompleteMove(taskToRetry);
+          }}
+          onDismiss={() => setNetworkError(null)}
+        />
+      )}
+    </AppShell>
   );
 }

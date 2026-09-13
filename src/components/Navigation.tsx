@@ -68,7 +68,7 @@ export default function Navigation({
             <div className="w-8 h-8 rounded-lg bg-[var(--bg-surface-2)] border border-[var(--border-subtle)] flex items-center justify-center group-hover:border-[var(--accent-amber)] transition-colors">
               <Sparkles className="w-4 h-4 text-[var(--accent-amber)]" aria-hidden="true" />
             </div>
-            <span className="font-serif font-bold text-lg tracking-tight">Entropy Engine</span>
+            <span className="font-serif font-bold text-lg tracking-tight">The ARC</span>
           </Link>
 
           {/* Center Links (5 Core Items) */}

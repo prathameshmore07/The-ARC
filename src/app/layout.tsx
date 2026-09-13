@@ -3,8 +3,8 @@ import './globals.css';
 import { ThemeProvider } from '@/lib/theme-context';
 
 export const metadata: Metadata = {
-  title: 'Entropy Engine — Life RPG',
-  description: "Your stats don't just grow — they decay. Fight the void.",
+  title: 'The ARC — Turn Your Life Into Your Arc',
+  description: 'Turn everyday goals into meaningful actions. Build habits, develop skills, and see your real-world progress become a journey.',
 };
 
 export default function RootLayout({

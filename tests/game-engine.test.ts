@@ -19,7 +19,10 @@ import {
   FOCUS_XP_PER_MINUTE,
   FOCUS_GRIT_PER_MINUTE,
   SHADOW_INITIAL_HP,
-  DECAY_GRACE_HOURS
+  DECAY_GRACE_HOURS,
+  validateQuestCompletion,
+  QUEST_ARCHETYPES,
+  DEFAULT_STARTER_QUESTS,
 } from '../src/lib/game-engine.ts';
 
 function assert(condition: boolean, message: string) {
@@ -135,4 +138,61 @@ const validSession = validateFocusSession(4);
 assert(validSession.validated === true, '4 heartbeats validated (>=2)');
 assert(validSession.computedDurationSec === 120, '4 heartbeats === 120s server-computed duration');
 
-console.log('\n🎉 ALL v4 LIVING LEDGER CORE TESTS PASSED PERFECTLY!\n');
+// 7. Multi-Archetype Quest System (Never Just a Timer App!)
+console.log('\n7. Multi-Archetype Quest System & Validation:');
+assert(Object.keys(QUEST_ARCHETYPES).length === 6, 'Exactly 6 archetypes registered');
+assert(QUEST_ARCHETYPES.FOCUS.tag === '[ FOCUS ]', 'FOCUS tag correct');
+assert(QUEST_ARCHETYPES.DISTANCE.tag === '[ DISTANCE ]', 'DISTANCE tag correct');
+assert(QUEST_ARCHETYPES.COUNT.tag === '[ COUNT ]', 'COUNT tag correct');
+assert(QUEST_ARCHETYPES.BUILD.tag === '[ BUILD ]', 'BUILD tag correct');
+assert(QUEST_ARCHETYPES.ACTION.tag === '[ ACTION ]', 'ACTION tag correct');
+assert(QUEST_ARCHETYPES.SKILL.tag === '[ SKILL ]', 'SKILL tag correct');
+
+// Default starter quests contain all 6 archetypes
+const starterArchetypes = new Set(DEFAULT_STARTER_QUESTS.map((q) => q.archetype));
+assert(starterArchetypes.has('FOCUS'), 'Starter quests include FOCUS');
+assert(starterArchetypes.has('DISTANCE'), 'Starter quests include DISTANCE');
+assert(starterArchetypes.has('COUNT'), 'Starter quests include COUNT');
+assert(starterArchetypes.has('BUILD'), 'Starter quests include BUILD');
+assert(starterArchetypes.has('ACTION'), 'Starter quests include ACTION');
+assert(starterArchetypes.has('SKILL'), 'Starter quests include SKILL');
+
+// Validation - FOCUS (timer integrity)
+const focusEarly = validateQuestCompletion('FOCUS', { elapsedDurationSec: 18 * 60 }, { durationMinutes: 45 });
+assert(focusEarly.valid === false, 'FOCUS stopped early at 18m/45m is rejected');
+assert(focusEarly.reason?.includes('18 MIN COMPLETED · 27 MIN REMAINING · [ CONTINUE QUEST ]') === true, 'FOCUS early reason includes exact integrity copy');
+
+const focusFull = validateQuestCompletion('FOCUS', { elapsedDurationSec: 45 * 60 }, { durationMinutes: 45 });
+assert(focusFull.valid === true, 'FOCUS full duration is valid');
+
+// Validation - DISTANCE
+const distFail = validateQuestCompletion('DISTANCE', { distanceValue: 2.1 }, { targetDistance: 3.0 });
+assert(distFail.valid === false, 'DISTANCE below target rejected (2.1 < 3.0)');
+const distPass = validateQuestCompletion('DISTANCE', { distanceValue: 3.0 }, { targetDistance: 3.0 });
+assert(distPass.valid === true, 'DISTANCE target reached accepted (3.0 >= 3.0)');
+
+// Validation - COUNT
+const countFail = validateQuestCompletion('COUNT', { countValue: 12 }, { targetCount: 20 });
+assert(countFail.valid === false, 'COUNT below target rejected (12 < 20)');
+const countPass = validateQuestCompletion('COUNT', { countValue: 20 }, { targetCount: 20 });
+assert(countPass.valid === true, 'COUNT target reached accepted (20 >= 20)');
+
+// Validation - BUILD
+const buildFail = validateQuestCompletion('BUILD', { completedCheckpoints: ['cp1', 'cp2'] }, { requiredCheckpoints: 3 });
+assert(buildFail.valid === false, 'BUILD with 2/3 checkpoints rejected');
+const buildPass = validateQuestCompletion('BUILD', { completedCheckpoints: ['cp1', 'cp2', 'cp3'] }, { requiredCheckpoints: 3 });
+assert(buildPass.valid === true, 'BUILD with 3/3 checkpoints accepted');
+
+// Validation - ACTION
+const actionFail = validateQuestCompletion('ACTION', { confirmed: false });
+assert(actionFail.valid === false, 'ACTION without confirmation rejected');
+const actionPass = validateQuestCompletion('ACTION', { confirmed: true });
+assert(actionPass.valid === true, 'ACTION with confirmation accepted');
+
+// Validation - SKILL
+const skillFail = validateQuestCompletion('SKILL', { skillOutput: '   ' });
+assert(skillFail.valid === false, 'SKILL with empty output rejected');
+const skillPass = validateQuestCompletion('SKILL', { skillOutput: '5x5 Squats @ 120kg, form steady' });
+assert(skillPass.valid === true, 'SKILL with logged output accepted');
+
+console.log('\n🎉 ALL v4 LIVING LEDGER & MULTI-ARCHETYPE TESTS PASSED PERFECTLY!\n');

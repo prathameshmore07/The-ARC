@@ -6,45 +6,41 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
-  // Check demo session cookie
-  const demoCookie = request.cookies.get('ee_demo_session');
-  let hasUser = !!demoCookie?.value;
+  let hasUser = false;
 
-  if (!hasUser) {
-    try {
-      const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key',
-        {
-          cookies: {
-            getAll() {
-              return request.cookies.getAll();
-            },
-            setAll(cookiesToSet) {
-              cookiesToSet.forEach(({ name, value }) =>
-                request.cookies.set(name, value)
-              );
-              supabaseResponse = NextResponse.next({
-                request,
-              });
-              cookiesToSet.forEach(({ name, value, options }) =>
-                supabaseResponse.cookies.set(name, value, options)
-              );
-            },
+  try {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key',
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
           },
-        }
-      );
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value)
+            );
+            supabaseResponse = NextResponse.next({
+              request,
+            });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              supabaseResponse.cookies.set(name, value, options)
+            );
+          },
+        },
+      }
+    );
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      hasUser = !!user;
-    } catch {
-      hasUser = false;
-    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    hasUser = !!user;
+  } catch {
+    hasUser = false;
   }
 
-  // Protect application routes — redirect to /login if not authenticated
+  // Protect application routes — redirect to /login if not authenticated via Supabase
   const protectedPrefixes = [
     '/dashboard',
     '/character',
@@ -53,6 +49,8 @@ export async function middleware(request: NextRequest) {
     '/attribute',
     '/focus',
     '/onboarding',
+    '/quests',
+    '/journey',
   ];
   const isProtected = protectedPrefixes.some((prefix) =>
     request.nextUrl.pathname.startsWith(prefix)

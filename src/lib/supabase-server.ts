@@ -28,36 +28,24 @@ export async function createSupabaseServerClient() {
 }
 
 /**
- * Get the authenticated user from the session (Supabase or Demo Session).
+ * Get the authenticated user from Supabase Auth.
  * Returns null if not authenticated.
  */
 export async function getAuthUser() {
-  const cookieStore = await cookies();
-
-  // 1. Check for local demo session cookie first
-  const demoCookie = cookieStore.get('ee_demo_session');
-  if (demoCookie?.value) {
-    try {
-      const parsed = JSON.parse(demoCookie.value);
-      if (parsed && parsed.id) {
-        return {
-          id: parsed.id,
-          email: parsed.email || 'demo@entropyengine.dev',
-          user_metadata: { name: parsed.name || 'Demo Chronicler' },
-        };
-      }
-    } catch {
-      // ignore invalid json
-    }
-  }
-
-  // 2. Check Supabase session
   try {
     const supabase = await createSupabaseServerClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) return null;
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error || !user) {
+      return null;
+    }
+
     return user;
-  } catch {
+  } catch (error) {
+    console.error('Error fetching Supabase auth user:', error);
     return null;
   }
 }

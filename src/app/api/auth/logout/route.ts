@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { createSupabaseServerClient } from '@/lib/supabase-server';
 
 export async function POST() {
-  const cookieStore = await cookies();
-  cookieStore.delete('ee_demo_session');
-  return NextResponse.json({ success: true });
+  try {
+    const supabase = await createSupabaseServerClient();
+    await supabase.auth.signOut();
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Supabase logout error:', error);
+    return NextResponse.json({ error: 'Failed to sign out from Supabase' }, { status: 500 });
+  }
 }

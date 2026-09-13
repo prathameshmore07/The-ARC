@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Cinzel:wght@500;600;700&family=Public+Sans:wght@300;400;500;600&display=swap');
 @import "tailwindcss";
 
 :root {
@@ -38,6 +39,11 @@
   --reclaim: #3A7F58;
 }
 
+/* Smooth Scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
 /* Base Body Styling */
 body {
   background-color: var(--bg-base);
@@ -49,10 +55,35 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Headings and Fantasy Display - Fraunces / High-contrast display */
-h1, h2, h3, h4, .font-serif, .font-heading {
-  font-family: "Fraunces", Georgia, Cambria, "Times New Roman", serif;
+/* Headings and Fantasy Display - Cinzel Roman Display */
+h1, h2, h3, h4, .font-serif, .font-heading, .font-display {
+  font-family: "Cormorant Garamond", "Cinzel", Georgia, "Times New Roman", serif;
   font-feature-settings: "liga" 1, "kern" 1;
+}
+
+.font-editorial {
+  font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  font-feature-settings: "liga" 1, "kern" 1, "cswh" 1;
+  letter-spacing: -0.025em;
+}
+
+.font-cinzel {
+  font-family: "Cormorant Garamond", "Cinzel", Georgia, serif;
+}
+
+/* The ARC Palette Variables */
+:root {
+  --arc-bone: #F7F5F0;
+  --arc-ink: #111111;
+  --arc-vermilion: #D04A26;
+  --arc-hairline: #E5E2DC;
+  --arc-muted: #8E8B82;
+  --arc-charcoal: #2A2A2A;
+}
+
+/* Arrow travel microinteraction */
+.group:hover .arrow-travel {
+  transform: translateX(8px);
 }
 
 /* Body / UI Chrome - Clean Geometric Sans */
