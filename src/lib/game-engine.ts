@@ -584,6 +584,103 @@ export const QUEST_ARCHETYPES: Record<QuestArchetype, QuestArchetypeConfig> = {
   },
 };
 
+/**
+ * Infer the true quest archetype from a quest/task title or keywords.
+ * Enforces the rule: Never default to FOCUS / timer unless duration is genuinely the objective.
+ */
+export function inferQuestArchetype(title: string, fallback?: QuestArchetype): QuestArchetype {
+  const t = (title || '').toUpperCase();
+
+  // 1. COUNT: Pages read, chapters, words, articles, repetitions
+  if (
+    t.includes('READ') ||
+    t.includes('PAGE') ||
+    t.includes('BOOK') ||
+    t.includes('CHAPTER') ||
+    t.includes('COUNT') ||
+    t.includes('ARTICLE')
+  ) {
+    return 'COUNT';
+  }
+
+  // 2. DISTANCE: Run, walk, km, distance, jog, cycle, marathon, 5k, 10k, miles
+  if (
+    t.includes('RUN') ||
+    t.includes('WALK') ||
+    t.includes('KM') ||
+    t.includes('DISTANCE') ||
+    t.includes('JOG') ||
+    t.includes('CYCLE') ||
+    t.includes('5K') ||
+    t.includes('10K') ||
+    t.includes('MILE')
+  ) {
+    return 'DISTANCE';
+  }
+
+  // 3. BUILD: Ship, feature, build, deploy, release, MVP, artifact, PR
+  if (
+    t.includes('BUILD') ||
+    t.includes('SHIP') ||
+    t.includes('FEATURE') ||
+    t.includes('DEPLOY') ||
+    t.includes('RELEASE') ||
+    t.includes('MVP') ||
+    t.includes('ARTIFACT') ||
+    t.includes('PULL REQUEST') ||
+    t.includes('PR ')
+  ) {
+    return 'BUILD';
+  }
+
+  // 4. ACTION: Call, message, reach out, talk, check-in, presence, conversation
+  if (
+    t.includes('CALL') ||
+    t.includes('PRESENCE') ||
+    t.includes('TALK') ||
+    t.includes('REACH OUT') ||
+    t.includes('CHECK-IN') ||
+    t.includes('CONNECT') ||
+    t.includes('MEETING') ||
+    t.includes('CONVERSATION')
+  ) {
+    return 'ACTION';
+  }
+
+  // 5. SKILL: Lift, workout, sets, reps, gym, squat, bench, deadlift, practice, guitar, piano, drill, solve
+  if (
+    t.includes('LIFT') ||
+    t.includes('WORKOUT') ||
+    t.includes('SET') ||
+    t.includes('SETS') ||
+    t.includes('REP') ||
+    t.includes('SQUAT') ||
+    t.includes('DEADLIFT') ||
+    t.includes('BENCH') ||
+    t.includes('PRACTICE') ||
+    t.includes('GUITAR') ||
+    t.includes('PIANO') ||
+    t.includes('DRILL') ||
+    t.includes('SOLVE')
+  ) {
+    return 'SKILL';
+  }
+
+  // 6. FOCUS: Only when time/deep work is genuinely the objective
+  if (
+    t.includes('FOCUS') ||
+    t.includes('DEEP WORK') ||
+    t.includes('SESSION') ||
+    t.includes('STUDY BLOCK') ||
+    t.includes('MEDITATION') ||
+    t.includes('IMMERSION')
+  ) {
+    return 'FOCUS';
+  }
+
+  return fallback || 'ACTION';
+}
+
 export interface QuestCompletionPayload {
   archetype?: QuestArchetype;
   focusSessionId?: string | null;
@@ -756,6 +853,9 @@ export interface StarterQuest {
   marksReward: number;
   xpReward: number;
   category: 'TODAY' | 'RECOMMENDED' | 'STANDARD';
+  status?: 'AVAILABLE' | 'ACTIVE' | 'COMPLETED';
+  completedAt?: string;
+  completedToday?: boolean;
   checkpoints?: string[];
   actionPrompt?: string;
   skillPrompt?: string;

@@ -46,7 +46,15 @@ interface AppShellProps {
   equippedTitle?: string;
   equippedInsignia?: string;
   userLevel?: number;
+  dominantAttribute?: 'BODY' | 'MIND' | 'CRAFT' | 'PEOPLE';
 }
+
+const ATTRIBUTE_AMBIENT: Record<string, string> = {
+  BODY: 'rgba(139, 92, 67, 0.03)',    // iron/earth
+  MIND: 'rgba(82, 120, 180, 0.03)',   // celestial sapphire
+  CRAFT: 'rgba(197, 160, 89, 0.03)',  // forge amber
+  PEOPLE: 'rgba(143, 29, 29, 0.03)',  // crimson banner
+};
 
 export default function AppShell({
   children,
@@ -58,6 +66,7 @@ export default function AppShell({
   equippedTitle = 'THE BUILDER',
   equippedInsignia = 'CELESTIAL COMPASS',
   userLevel = 7,
+  dominantAttribute,
 }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -66,6 +75,15 @@ export default function AppShell({
   const [focusModalOpen, setFocusModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [focusDuration, setFocusDuration] = useState<number>(45);
+
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   // Live synchronizable HUD metrics
   const [liveMarks, setLiveMarks] = useState(userMarks);
@@ -145,8 +163,8 @@ export default function AppShell({
       >
         {/* Top: The ARC Brand & Emblem */}
         <div className="h-20 px-6 flex items-center gap-3 border-b border-[#141B24]">
-          <Link href="/dashboard" className="flex items-center gap-3 group">
-            <CompassRose className="w-6 h-6 text-[#C5A059] transition-transform duration-500 group-hover:rotate-45" />
+          <Link href="/dashboard" className="flex items-center gap-3 group focus-visible:ring-2 focus-visible:ring-[#C5A059] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06090E] rounded outline-none">
+            <CompassRose className={`w-6 h-6 text-[#C5A059] ${prefersReducedMotion ? '' : 'transition-transform duration-500 group-hover:rotate-45'}`} />
             <div className="flex flex-col">
               <span className="font-display font-semibold text-sm tracking-[0.24em] text-[#F2EEE6] uppercase">
                 The ARC
@@ -194,7 +212,7 @@ export default function AppShell({
               <Link
                 key={item.name}
                 href={item.href}
-                className={`group flex items-center justify-between px-3.5 py-2.5 rounded transition-colors text-[11px] font-sans tracking-[0.16em] uppercase ${
+                className={`group flex items-center justify-between px-3.5 py-2.5 rounded transition-colors text-[11px] font-sans tracking-[0.16em] uppercase focus-visible:ring-2 focus-visible:ring-[#C5A059] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06090E] outline-none ${
                   isActive
                     ? 'bg-[#101722] text-[#F2EEE6] font-medium border-l-2 border-[#C5A059]'
                     : 'text-[#8B97A6] hover:text-[#EDE8DF] hover:bg-[#0D131C]'
@@ -274,8 +292,19 @@ export default function AppShell({
       {/* ─────────────────────────────────────────────────────────────
           2. MAIN CONTENT AREA (Padded left on Desktop)
       ───────────────────────────────────────────────────────────── */}
-      <main className="md:pl-60 min-h-screen pb-24 md:pb-12">
-        {children}
+      <main className="md:pl-60 min-h-screen pb-24 md:pb-12 relative">
+        {dominantAttribute && (
+          <div
+            className="fixed inset-0 pointer-events-none z-0 transition-opacity duration-[2000ms]"
+            style={{
+              background: `radial-gradient(ellipse at 50% 0%, ${ATTRIBUTE_AMBIENT[dominantAttribute] || 'transparent'}, transparent 70%)`,
+            }}
+            aria-hidden="true"
+          />
+        )}
+        <div className="relative z-10">
+          {children}
+        </div>
       </main>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -298,7 +327,7 @@ export default function AppShell({
             <Link
               key={item.name}
               href={item.href}
-              className={`flex flex-col items-center justify-center py-1 px-3 text-[9px] font-sans tracking-[0.14em] uppercase transition-colors ${
+              className={`flex flex-col items-center justify-center py-1 px-3 rounded text-[9px] font-sans tracking-[0.14em] uppercase transition-colors focus-visible:ring-2 focus-visible:ring-[#C5A059] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06090E] outline-none ${
                 isActive ? 'text-[#C5A059] font-medium' : 'text-[#6B7784] hover:text-[#C9D0D8]'
               }`}
             >

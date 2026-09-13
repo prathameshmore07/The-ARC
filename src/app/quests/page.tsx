@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AppShell from '@/components/shell/AppShell';
 import {
   ArrowRight,
@@ -29,8 +29,10 @@ import {
   QUEST_ARCHETYPES,
   DEFAULT_STARTER_QUESTS,
   StarterQuest,
+  inferQuestArchetype,
 } from '@/lib/game-engine';
 import ArcCelebrationModal, { CelebrationPayload } from '@/components/game/ArcCelebrationModal';
+import ComicReactionEngine, { ComicReactionPayload } from '@/components/game/ComicReactionEngine';
 import NetworkErrorBanner from '@/components/game/NetworkErrorBanner';
 import EmptyState from '@/components/game/EmptyState';
 
@@ -54,17 +56,26 @@ const ATTRIBUTE_IMAGES: Record<ArcAttributeKey, string> = {
   PEOPLE: '/images/arc/arc-people.jpg',
 };
 
-const DEFAULT_QUESTS: Quest[] = DEFAULT_STARTER_QUESTS;
+const DEFAULT_QUESTS: Quest[] = DEFAULT_STARTER_QUESTS.map((q) => ({
+  ...q,
+  status: 'AVAILABLE' as const,
+}));
 
-export default function QuestsPage() {
+function QuestsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const paramState = searchParams.get('state')?.toUpperCase() || searchParams.get('tab')?.toUpperCase();
   const [activeAttr, setActiveAttr] = useState<ArcAttributeKey | 'ALL'>('ALL');
   const [activeTab, setActiveTab] = useState<'ALL' | 'TODAY' | 'RECOMMENDED'>('ALL');
+  const [stateFilter, setStateFilter] = useState<'ALL' | 'AVAILABLE' | 'ACTIVE' | 'COMPLETED'>(
+    paramState === 'COMPLETED' || paramState === 'ACTIVE' || paramState === 'AVAILABLE' ? (paramState as any) : 'ALL'
+  );
   const [activeArchetype, setActiveArchetype] = useState<QuestArchetype | 'ALL'>('ALL');
   const [selectedQuest, setSelectedQuest] = useState<Quest | null>(null);
   const [quests, setQuests] = useState<Quest[]>(DEFAULT_QUESTS);
   const [completedQuestId, setCompletedQuestId] = useState<string | null>(null);
   const [celebrationData, setCelebrationData] = useState<CelebrationPayload | null>(null);
+  const [comicReaction, setComicReaction] = useState<ComicReactionPayload | null>(null);
   const [networkError, setNetworkError] = useState<{ quest: Quest; message: string } | null>(null);
   const [attributes, setAttributes] = useState<any[]>([]);
 
@@ -108,7 +119,7 @@ export default function QuestsPage() {
     return calculateQuestReward(formDiff);
   }, [formDiff]);
 
-  // Load existing tasks from dashboard
+  // Load existing tasks from dashboard (PRESERVING COMPLETED QUESTS)
   const loadServerTasks = useCallback(async () => {
     try {
       const res = await fetch('/api/dashboard');
@@ -116,74 +127,75 @@ export default function QuestsPage() {
         const data = await res.json();
         setAttributes(data.attributes || []);
         if (data.tasks && data.tasks.length > 0) {
-          const userQuests: Quest[] = data.tasks
-            .filter((t: any) => t.status !== 'done')
-            .map((t: any, idx: number) => {
-              const attrName = (t.attribute?.name || 'CRAFT').toUpperCase();
-              let attrKey: ArcAttributeKey = 'CRAFT';
-              if (attrName.includes('BODY') || attrName.includes('STRENGTH')) attrKey = 'BODY';
-              else if (attrName.includes('MIND') || attrName.includes('INTELLECT')) attrKey = 'MIND';
-              else if (attrName.includes('PEOPLE') || attrName.includes('SOCIAL')) attrKey = 'PEOPLE';
+          const userQuests: Quest[] = data.tasks.map((t: any, idx: number) => {
+            const attrName = (t.attribute?.name || 'CRAFT').toUpperCase();
+            let attrKey: ArcAttributeKey = 'CRAFT';
+            if (attrName.includes('BODY') || attrName.includes('STRENGTH')) attrKey = 'BODY';
+            else if (attrName.includes('MIND') || attrName.includes('INTELLECT')) attrKey = 'MIND';
+            else if (attrName.includes('PEOPLE') || attrName.includes('SOCIAL')) attrKey = 'PEOPLE';
 
-              const titleUpper = t.title.toUpperCase();
-              let taskArchetype: QuestArchetype = 'FOCUS';
-              let targetText = '30 MIN';
-              let targetVal = 30;
-              let unit = 'MIN';
+            const taskArchetype = inferQuestArchetype(t.title);
+            let targetText = '45 MIN';
+            let targetVal = 45;
+            let unit = 'MIN';
 
-              if (titleUpper.includes('RUN') || titleUpper.includes('WALK') || titleUpper.includes('KM') || titleUpper.includes('DISTANCE')) {
-                taskArchetype = 'DISTANCE';
-                targetText = '3.0 KM';
-                targetVal = 3.0;
-                unit = 'KM';
-              } else if (titleUpper.includes('READ') || titleUpper.includes('PAGE') || titleUpper.includes('COUNT') || titleUpper.includes('REP')) {
-                taskArchetype = 'COUNT';
-                targetText = '20 PAGES';
-                targetVal = 20;
-                unit = 'Pages';
-              } else if (titleUpper.includes('BUILD') || titleUpper.includes('SHIP') || titleUpper.includes('DEPLOY') || titleUpper.includes('FEATURE')) {
-                taskArchetype = 'BUILD';
-                targetText = '3 CHECKPOINTS';
-                targetVal = 3;
-                unit = 'Checkpoints';
-              } else if (titleUpper.includes('CALL') || titleUpper.includes('PRESENCE') || titleUpper.includes('REACH') || titleUpper.includes('CONNECT')) {
-                taskArchetype = 'ACTION';
-                targetText = 'CONFIRMATION';
-                targetVal = 1;
-                unit = 'Call';
-              } else if (titleUpper.includes('LIFT') || titleUpper.includes('WORKOUT') || titleUpper.includes('PRACTICE') || titleUpper.includes('SKILL')) {
-                taskArchetype = 'SKILL';
-                targetText = '5 SETS LOGGED';
-                targetVal = 5;
-                unit = 'Sets';
-              }
+            if (taskArchetype === 'DISTANCE') {
+              targetText = '3.0 KM';
+              targetVal = 3.0;
+              unit = 'KM';
+            } else if (taskArchetype === 'COUNT') {
+              targetText = '20 PAGES';
+              targetVal = 20;
+              unit = 'Pages';
+            } else if (taskArchetype === 'BUILD') {
+              targetText = '3 CHECKPOINTS';
+              targetVal = 3;
+              unit = 'Checkpoints';
+            } else if (taskArchetype === 'ACTION') {
+              targetText = 'CONFIRMATION';
+              targetVal = 1;
+              unit = 'Confirmation';
+            } else if (taskArchetype === 'SKILL') {
+              targetText = '5 SETS';
+              targetVal = 5;
+              unit = 'Sets';
+            }
 
-              const diff = (idx % 2 === 0 ? 'II' : 'I') as QuestDifficulty;
-              const rew = calculateQuestReward(diff);
+            const diff = (idx % 2 === 0 ? 'II' : 'I') as QuestDifficulty;
+            const rew = calculateQuestReward(diff);
 
-              return {
-                id: t.id,
-                code: String(idx + 1).padStart(3, '0'),
-                title: t.title.toUpperCase(),
-                archetype: taskArchetype,
-                targetType: QUEST_ARCHETYPES[taskArchetype].targetType,
-                target: targetText,
-                targetValue: targetVal,
-                unit,
-                durationMinutes: 30,
-                attribute: attrKey,
-                tags: `${attrKey} · ${taskArchetype}`,
-                difficulty: diff,
-                objective: `Fulfill the daily self-directed move: "${t.title}".`,
-                whyItMatters: 'Self-directed daily action creates unbreakable momentum.',
-                attributeReward: rew.attr,
-                momentumReward: rew.momentum,
-                marksReward: rew.marks,
-                xpReward: rew.xp,
-                category: 'TODAY',
-                isCustom: true,
-              };
-            });
+            const isDone = t.status === 'done';
+            const isActive = t.status === 'in_progress';
+            const questStatus: 'AVAILABLE' | 'ACTIVE' | 'COMPLETED' = isDone ? 'COMPLETED' : isActive ? 'ACTIVE' : 'AVAILABLE';
+
+            const completion = (data.completions || []).find((c: any) => c.taskId === t.id);
+
+            return {
+              id: t.id,
+              code: String(idx + 1).padStart(3, '0'),
+              title: t.title.toUpperCase(),
+              archetype: taskArchetype,
+              targetType: QUEST_ARCHETYPES[taskArchetype].targetType,
+              target: targetText,
+              targetValue: targetVal,
+              unit,
+              durationMinutes: 30,
+              attribute: attrKey,
+              tags: `${attrKey} · ${taskArchetype}`,
+              difficulty: diff,
+              objective: `Fulfill the daily self-directed move: "${t.title}".`,
+              whyItMatters: 'Self-directed daily action creates unbreakable momentum.',
+              attributeReward: rew.attr,
+              momentumReward: rew.momentum,
+              marksReward: completion?.gritAwarded || rew.marks,
+              xpReward: completion?.xpAwarded || rew.xp,
+              category: 'TODAY',
+              status: questStatus,
+              completedAt: completion?.completedAt,
+              completedToday: isDone,
+              isCustom: true,
+            };
+          });
 
           setQuests((prev) => {
             const defaultFiltered = prev.filter((q) => !q.isCustom);
@@ -200,16 +212,31 @@ export default function QuestsPage() {
     loadServerTasks();
   }, [loadServerTasks]);
 
-  // Filtered Quests by Attribute and Archetype
+  // Counts for each state tab
+  const stateCounts = useMemo(() => {
+    return {
+      ALL: quests.length,
+      AVAILABLE: quests.filter((q) => !q.status || q.status === 'AVAILABLE').length,
+      ACTIVE: quests.filter((q) => q.status === 'ACTIVE').length,
+      COMPLETED: quests.filter((q) => q.status === 'COMPLETED').length,
+    };
+  }, [quests]);
+
+  // Filtered Quests by Attribute, Archetype, Category, and State
   const filteredQuests = quests.filter((q) => {
     const matchesAttr = activeAttr === 'ALL' || q.attribute === activeAttr;
     const matchesArchetype = activeArchetype === 'ALL' || q.archetype === activeArchetype;
-    const matchesTab =
+    const matchesCategory =
       activeTab === 'ALL' ||
       (activeTab === 'TODAY'
         ? q.category === 'TODAY'
         : q.category === 'RECOMMENDED' || q.category === 'TODAY');
-    return matchesAttr && matchesArchetype && matchesTab;
+    const matchesState =
+      stateFilter === 'ALL' ||
+      (stateFilter === 'COMPLETED' && q.status === 'COMPLETED') ||
+      (stateFilter === 'ACTIVE' && q.status === 'ACTIVE') ||
+      (stateFilter === 'AVAILABLE' && (!q.status || q.status === 'AVAILABLE'));
+    return matchesAttr && matchesArchetype && matchesCategory && matchesState;
   });
 
   // Handle Quest Creation with Dynamic Archetype Inputs
@@ -434,6 +461,49 @@ export default function QuestsPage() {
           })
         );
       } else {
+        // Persist starter or synthetic quest to DB
+        try {
+          const dashRes = await fetch('/api/dashboard');
+          if (dashRes.ok) {
+            const dashData = await dashRes.json();
+            const attrMatch = (dashData.attributes || []).find((a: any) => {
+              const aName = (a.name || '').toUpperCase();
+              return aName.includes(quest.attribute) || (quest.attribute === 'BODY' && aName.includes('STRENGTH')) || (quest.attribute === 'MIND' && aName.includes('INTELLECT'));
+            }) || dashData.attributes?.[0];
+
+            if (attrMatch) {
+              const createRes = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: quest.title,
+                  attributeId: attrMatch.id,
+                }),
+              });
+              if (createRes.ok) {
+                const createdTask = await createRes.json();
+                await fetch(`/api/tasks/${createdTask.id}/complete`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    archetype: quest.archetype,
+                    durationMinutes: quest.durationMinutes,
+                    elapsedDurationSec: quest.durationMinutes * 60,
+                    distanceValue: quest.targetValue || 3.0,
+                    countValue: quest.targetValue || 20,
+                    completedCheckpoints: quest.checkpoints || ['Milestone 1', 'Milestone 2', 'Milestone 3'],
+                    requiredCheckpoints: quest.checkpoints?.length || 1,
+                    confirmed: true,
+                    skillOutput: quest.skillPrompt || 'Practice output deliberated',
+                  }),
+                });
+              }
+            }
+          }
+        } catch (persErr) {
+          console.warn('Could not persist quest to database', persErr);
+        }
+
         window.dispatchEvent(
           new CustomEvent('arc-state-update', {
             detail: {
@@ -459,12 +529,58 @@ export default function QuestsPage() {
         newTitle: newLevelTitle || 'MOMENTUM',
       });
 
-      setQuests((prev) => prev.filter((q) => q.id !== quest.id));
+      setComicReaction({
+        type: 'QUEST_COMPLETE',
+        questTitle: quest.title,
+        attrKey: quest.attribute,
+        attrPoints: finalAttr,
+        momentum: finalMomentum,
+        marks: finalMarks,
+        xp: finalXp,
+        oldLevel: 7,
+        newLevel: leveledUp ? 8 : 7,
+      });
+
+      // Keep completed quest in state marked as COMPLETED (never delete)
+      setQuests((prev) =>
+        prev.map((q) =>
+          q.id === quest.id
+            ? {
+                ...q,
+                status: 'COMPLETED',
+                completedToday: true,
+                completedAt: new Date().toISOString(),
+                attributeReward: finalAttr,
+                momentumReward: finalMomentum,
+                marksReward: finalMarks,
+                xpReward: finalXp,
+              }
+            : q
+        )
+      );
+
       if (selectedQuest?.id === quest.id) {
-        setSelectedQuest(null);
+        setSelectedQuest((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: 'COMPLETED',
+                completedToday: true,
+                completedAt: new Date().toISOString(),
+                attributeReward: finalAttr,
+                momentumReward: finalMomentum,
+                marksReward: finalMarks,
+                xpReward: finalXp,
+              }
+            : null
+        );
       }
     } catch (err: any) {
       console.error('Error completing quest', err);
+      setComicReaction({
+        type: 'ACTION_REJECTED',
+        rejectionReason: err?.message || "The Arc does not bend. That move doesn't count.",
+      });
       setNetworkError({
         quest,
         message: 'Your progress was not lost. The server could not reconcile this quest.',
@@ -552,12 +668,39 @@ export default function QuestsPage() {
         </section>
 
         {/* ─────────────────────────────────────────────────────────────
-            02. FILTER TABS (ALL · TODAY · RECOMMENDED)
+            02. FILTER TABS (STATE FILTER & CATEGORIES)
         ───────────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between pb-4 mb-4 border-b border-[#1A222C]">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 mb-4 border-b border-[#1A222C]">
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
             {[
-              { id: 'ALL', label: 'All Quests' },
+              { id: 'ALL', label: 'All', count: stateCounts.ALL },
+              { id: 'AVAILABLE', label: 'Available', count: stateCounts.AVAILABLE },
+              { id: 'ACTIVE', label: 'Active', count: stateCounts.ACTIVE },
+              { id: 'COMPLETED', label: 'Completed', count: stateCounts.COMPLETED },
+            ].map((st) => (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => setStateFilter(st.id as any)}
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-mono tracking-wider uppercase transition-colors rounded cursor-pointer ${
+                  stateFilter === st.id
+                    ? 'bg-[#121B26] text-[#C5A059] border border-[#C5A059]/40 font-semibold shadow-sm'
+                    : 'text-[#6B7784] hover:text-[#EDE8DF] border border-transparent'
+                }`}
+              >
+                <span>{st.label}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                  stateFilter === st.id ? 'bg-[#C5A059]/20 text-[#C5A059]' : 'bg-[#121B26] text-[#6B7784]'
+                }`}>
+                  {st.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {[
+              { id: 'ALL', label: 'All Categories' },
               { id: 'TODAY', label: 'Today' },
               { id: 'RECOMMENDED', label: 'Recommended' },
             ].map((tab) => (
@@ -565,9 +708,9 @@ export default function QuestsPage() {
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`px-4 py-2 text-xs font-mono tracking-wider uppercase transition-colors rounded cursor-pointer ${
+                className={`px-3 py-1.5 text-[11px] font-mono tracking-wider uppercase transition-colors rounded cursor-pointer ${
                   activeTab === tab.id
-                    ? 'bg-[#121B26] text-[#C5A059] border border-[#C5A059]/40 font-semibold'
+                    ? 'bg-[#1E2938] text-[#EDE8DF] border border-[#38485C]'
                     : 'text-[#6B7784] hover:text-[#EDE8DF]'
                 }`}
               >
@@ -575,10 +718,6 @@ export default function QuestsPage() {
               </button>
             ))}
           </div>
-
-          <span className="font-mono text-[10px] text-[#6B7784] uppercase tracking-widest">
-            {filteredQuests.length} QUESTS AVAILABLE
-          </span>
         </div>
 
         {/* Archetype Filter Strip */}
@@ -630,28 +769,39 @@ export default function QuestsPage() {
           <div className="divide-y divide-[#151E2A] border-y border-[#151E2A]">
             {filteredQuests.map((quest) => {
               const isCompleted = completedQuestId === quest.id;
+              const isDone = quest.status === 'COMPLETED';
               const archConfig = QUEST_ARCHETYPES[quest.archetype] || QUEST_ARCHETYPES.FOCUS;
 
               return (
                 <div
                   key={quest.id}
                   onClick={() => setSelectedQuest(quest)}
-                  className={`group relative py-5 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:bg-[#0D141F] cursor-pointer ${
-                    isCompleted ? 'opacity-40' : ''
-                  }`}
+                  className={`group relative py-5 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all cursor-pointer ${
+                    isDone
+                      ? 'bg-[#090E16]/80 hover:bg-[#0D1522] border-l-2 border-l-[#C5A059]'
+                      : 'hover:bg-[#0D141F]'
+                  } ${isCompleted ? 'opacity-40' : ''}`}
                 >
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-transparent group-hover:bg-[#C5A059] transition-colors" />
+                  <div className={`absolute left-0 top-0 bottom-0 w-0.5 transition-colors ${
+                    isDone ? 'bg-[#C5A059]' : 'bg-transparent group-hover:bg-[#C5A059]'
+                  }`} />
 
                   <div className="flex items-start sm:items-center gap-4 sm:gap-6">
-                    {/* Quest Code & Attribute */}
-                    <div className="shrink-0 text-left">
-                      <span className="font-mono text-xs text-[#4A5565] group-hover:text-[#C5A059] font-semibold block transition-colors">
-                        {quest.code}
-                      </span>
-                      <span className="font-mono text-[9px] text-[#7E8B99] uppercase">
-                        {quest.attribute}
-                      </span>
-                    </div>
+                    {/* Left Icon: Checkmark if done, or Quest Code & Attribute */}
+                    {isDone ? (
+                      <div className="w-9 h-9 rounded-full border border-[#C5A059]/60 bg-[#C5A059]/10 flex items-center justify-center text-[#C5A059] shrink-0 shadow-[0_0_15px_rgba(197,160,89,0.25)]">
+                        <Check className="w-4 h-4 stroke-[3]" />
+                      </div>
+                    ) : (
+                      <div className="shrink-0 text-left">
+                        <span className="font-mono text-xs text-[#4A5565] group-hover:text-[#C5A059] font-semibold block transition-colors">
+                          {quest.code}
+                        </span>
+                        <span className="font-mono text-[9px] text-[#7E8B99] uppercase">
+                          {quest.attribute}
+                        </span>
+                      </div>
+                    )}
 
                     {/* Attribute thumbnail */}
                     <div className="relative w-11 h-11 rounded overflow-hidden border border-[#1E2938] shrink-0 hidden sm:block">
@@ -659,19 +809,29 @@ export default function QuestsPage() {
                         src={ATTRIBUTE_IMAGES[quest.attribute]}
                         alt={quest.attribute}
                         fill
-                        className="object-cover"
+                        className={`object-cover ${isDone ? 'opacity-50 grayscale-[40%]' : ''}`}
                       />
                     </div>
 
                     {/* Title & Info */}
                     <div>
                       <div className="flex items-center gap-2.5 flex-wrap">
-                        <h3 className="font-display font-semibold text-xl sm:text-2xl text-[#F2EEE6] group-hover:text-[#C5A059] transition-colors tracking-wide uppercase">
-                          {quest.title}
+                        <h3 className={`font-display font-semibold text-xl sm:text-2xl transition-colors tracking-wide uppercase ${
+                          isDone ? 'text-[#F2EEE6]' : 'text-[#F2EEE6] group-hover:text-[#C5A059]'
+                        }`}>
+                          {isDone ? `✓ ${quest.title}` : quest.title}
                         </h3>
-                        <span className={`px-2 py-0.5 rounded font-mono text-[9px] font-bold uppercase tracking-wider border ${archConfig.badgeStyle}`}>
-                          {archConfig.tag}
-                        </span>
+
+                        {isDone ? (
+                          <span className="px-2 py-0.5 rounded font-mono text-[9px] font-bold uppercase tracking-wider bg-[#C5A059]/15 text-[#C5A059] border border-[#C5A059]/40">
+                            COMPLETED TODAY
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-0.5 rounded font-mono text-[9px] font-bold uppercase tracking-wider border ${archConfig.badgeStyle}`}>
+                            {archConfig.tag}
+                          </span>
+                        )}
+
                         <span className="font-mono text-xs text-[#C5A059]">
                           {quest.target}
                         </span>
@@ -686,64 +846,87 @@ export default function QuestsPage() {
                     </div>
                   </div>
 
-                  {/* Right Rewards & CRUD Actions */}
+                  {/* Right Rewards & Actions */}
                   <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#141C26]">
                     {/* Reward Pills */}
                     <div className="font-mono text-xs text-right hidden md:block">
                       <span className="text-[#EDE8DF]">+{quest.attributeReward} {quest.attribute}</span>
                       <span className="mx-2 text-[#38485C]">·</span>
+                      <span className="text-[#C5A059]">+{quest.momentumReward || 8} MOMENTUM</span>
+                      <span className="mx-2 text-[#38485C]">·</span>
                       <span className="text-[#C5A059]">+{quest.marksReward || 10} MARKS</span>
                     </div>
 
-                    {/* Action Icons: Edit, Delete, Complete */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={(e) => handleOpenEdit(quest, e)}
-                        className="p-2 text-[#6B7784] hover:text-[#C5A059] hover:bg-[#151E2A] rounded transition-colors cursor-pointer"
-                        title="Edit Quest"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
+                    {isDone ? (
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-[#C5A059] tracking-wider uppercase px-3 py-1.5 rounded border border-[#C5A059]/30 bg-[#C5A059]/10 inline-flex items-center gap-1.5 font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Ledger Verified</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedQuest(quest);
+                          }}
+                          className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-[#8B97A6] hover:text-[#EDE8DF] border border-[#1E2938] hover:border-[#38485C] rounded transition-colors"
+                        >
+                          Details
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Action Icons: Edit, Delete, Complete */}
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenEdit(quest, e)}
+                            className="p-2 text-[#6B7784] hover:text-[#C5A059] hover:bg-[#151E2A] rounded transition-colors cursor-pointer"
+                            title="Edit Quest"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteQuest(quest.id, e)}
-                        className="p-2 text-[#6B7784] hover:text-[#C0392B] hover:bg-[#151E2A] rounded transition-colors cursor-pointer"
-                        title="Archive Quest"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteQuest(quest.id, e)}
+                            className="p-2 text-[#6B7784] hover:text-[#C0392B] hover:bg-[#151E2A] rounded transition-colors cursor-pointer"
+                            title="Archive Quest"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={(e) => handleCompleteQuest(quest, e)}
-                        className="p-2 text-[#6B7784] hover:text-[#3A7F58] hover:bg-[#151E2A] rounded transition-colors cursor-pointer"
-                        title="Mark Complete & Claim Rewards"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                          <button
+                            type="button"
+                            onClick={(e) => handleCompleteQuest(quest, e)}
+                            className="p-2 text-[#6B7784] hover:text-[#3A7F58] hover:bg-[#151E2A] rounded transition-colors cursor-pointer"
+                            title="Mark Complete & Claim Rewards"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
+                        </div>
 
-                    {/* Accept / Begin Button */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const params = new URLSearchParams({
-                          attr: quest.attribute,
-                          archetype: quest.archetype,
-                          duration: String(quest.durationMinutes),
-                          title: quest.title,
-                          targetValue: String(quest.targetValue || ''),
-                          unit: quest.unit || '',
-                        });
-                        router.push(`/focus/${quest.id}?${params.toString()}`);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#C5A059] hover:bg-[#D4B57A] text-[#080C12] text-[10px] font-sans tracking-[0.18em] uppercase font-semibold transition-all rounded shadow-[0_2px_12px_rgba(197,160,89,0.25)] cursor-pointer"
-                    >
-                      <span>Begin &rarr;</span>
-                    </button>
+                        {/* Accept / Begin Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const params = new URLSearchParams({
+                              attr: quest.attribute,
+                              archetype: quest.archetype,
+                              duration: String(quest.durationMinutes),
+                              title: quest.title,
+                              targetValue: String(quest.targetValue || ''),
+                              unit: quest.unit || '',
+                            });
+                            router.push(`/focus/${quest.id}?${params.toString()}`);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#C5A059] hover:bg-[#D4B57A] text-[#080C12] text-[10px] font-sans tracking-[0.18em] uppercase font-semibold transition-all rounded shadow-[0_2px_12px_rgba(197,160,89,0.25)] cursor-pointer"
+                        >
+                          <span>Begin &rarr;</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
@@ -828,49 +1011,70 @@ export default function QuestsPage() {
               </div>
 
               <div className="flex items-center justify-between pt-4 border-t border-[#141C26]">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={(e) => handleOpenEdit(selectedQuest, e)}
-                    className="px-3 py-2 text-[11px] font-sans tracking-wider uppercase text-[#8B97A6] hover:text-[#C5A059] transition-colors cursor-pointer"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleCompleteQuest(selectedQuest, e)}
-                    className="px-3 py-2 text-[11px] font-sans tracking-wider uppercase text-[#3A7F58] hover:text-[#4AA872] transition-colors cursor-pointer"
-                  >
-                    Complete
-                  </button>
-                </div>
+                {selectedQuest.status === 'COMPLETED' ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#34D399] animate-pulse" />
+                      <span className="font-mono text-xs text-[#C5A059] uppercase tracking-widest flex items-center gap-1.5 font-semibold">
+                        <CheckCircle2 className="w-4 h-4 text-[#C5A059]" />
+                        <span>Recorded in Sovereign Ledger</span>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedQuest(null)}
+                      className="px-6 py-2.5 text-[11px] font-mono tracking-[0.18em] uppercase text-[#080C12] bg-[#C5A059] hover:bg-[#D4B57A] transition-colors font-semibold shadow-[0_4px_20px_rgba(197,160,89,0.3)] cursor-pointer rounded"
+                    >
+                      Close
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenEdit(selectedQuest, e)}
+                        className="px-3 py-2 text-[11px] font-sans tracking-wider uppercase text-[#8B97A6] hover:text-[#C5A059] transition-colors cursor-pointer"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleCompleteQuest(selectedQuest, e)}
+                        className="px-3 py-2 text-[11px] font-sans tracking-wider uppercase text-[#3A7F58] hover:text-[#4AA872] transition-colors cursor-pointer"
+                      >
+                        Complete
+                      </button>
+                    </div>
 
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedQuest(null)}
-                    className="px-4 py-2.5 text-[11px] font-sans tracking-[0.16em] uppercase text-[#7E8B99] hover:text-[#EDE8DF] transition-colors cursor-pointer"
-                  >
-                    Back
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const params = new URLSearchParams({
-                        attr: selectedQuest.attribute,
-                        archetype: selectedQuest.archetype,
-                        duration: String(selectedQuest.durationMinutes),
-                        title: selectedQuest.title,
-                        targetValue: String(selectedQuest.targetValue || ''),
-                        unit: selectedQuest.unit || '',
-                      });
-                      router.push(`/focus/${selectedQuest.id}?${params.toString()}`);
-                    }}
-                    className="px-6 py-2.5 text-[11px] font-sans tracking-[0.18em] uppercase text-[#080C12] bg-[#C5A059] hover:bg-[#D4B57A] transition-colors font-semibold shadow-[0_4px_20px_rgba(197,160,89,0.3)] cursor-pointer"
-                  >
-                    Begin Quest &rarr;
-                  </button>
-                </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedQuest(null)}
+                        className="px-4 py-2.5 text-[11px] font-sans tracking-[0.16em] uppercase text-[#7E8B99] hover:text-[#EDE8DF] transition-colors cursor-pointer"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            attr: selectedQuest.attribute,
+                            archetype: selectedQuest.archetype,
+                            duration: String(selectedQuest.durationMinutes),
+                            title: selectedQuest.title,
+                            targetValue: String(selectedQuest.targetValue || ''),
+                            unit: selectedQuest.unit || '',
+                          });
+                          router.push(`/focus/${selectedQuest.id}?${params.toString()}`);
+                        }}
+                        className="px-6 py-2.5 text-[11px] font-sans tracking-[0.18em] uppercase text-[#080C12] bg-[#C5A059] hover:bg-[#D4B57A] transition-colors font-semibold shadow-[0_4px_20px_rgba(197,160,89,0.3)] cursor-pointer"
+                      >
+                        Begin Quest &rarr;
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1378,6 +1582,22 @@ export default function QuestsPage() {
           onDismiss={() => setNetworkError(null)}
         />
       )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          08. LIVING GRAPHIC NOVEL COMIC REACTION ENGINE
+      ───────────────────────────────────────────────────────────── */}
+      <ComicReactionEngine
+        payload={comicReaction}
+        onClose={() => setComicReaction(null)}
+      />
     </AppShell>
+  );
+}
+
+export default function QuestsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#06090E]" />}>
+      <QuestsContent />
+    </Suspense>
   );
 }

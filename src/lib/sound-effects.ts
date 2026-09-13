@@ -310,3 +310,265 @@ export function playClimaxFanfare() {
     // Graceful fallback
   }
 }
+
+/**
+ * Semantic Graphic Novel Sound Events
+ */
+
+/** Deep cinematic entrance sound for the opening of THE ARC */
+export function playComicIntro() {
+  if (isMuted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(65, t);
+    osc.frequency.exponentialRampToValueAtTime(45, t + 1.2);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(350, t);
+    filter.frequency.linearRampToValueAtTime(120, t + 1.2);
+
+    gain.gain.setValueAtTime(0.001, t);
+    gain.gain.linearRampToValueAtTime(0.22, t + 0.3);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 1.25);
+  } catch {}
+}
+
+/** Crisp, delicate typewriter/dialogue entry click */
+export function playDialogueAppear() {
+  if (isMuted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(2400, t);
+    osc.frequency.exponentialRampToValueAtTime(800, t + 0.02);
+
+    gain.gain.setValueAtTime(0.06, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.025);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.03);
+  } catch {}
+}
+
+/** Punchy restrained panel transition swipe */
+export function playQuestionAdvance() {
+  if (isMuted) return;
+  playImpactBeat();
+}
+
+/** Swift iron lock for quest acceptance (<250ms) */
+export function playQuestAccept() {
+  if (isMuted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(440, t);
+    osc.frequency.exponentialRampToValueAtTime(180, t + 0.12);
+
+    gain.gain.setValueAtTime(0.2, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.15);
+  } catch {}
+}
+
+/** High-impact quest completion thump + chime */
+export function playQuestComplete() {
+  if (isMuted) return;
+  playImpactBeat();
+  setTimeout(() => {
+    playChime();
+  }, 120);
+}
+
+/** Ascending pip for XP gain increment */
+export function playXpGain() {
+  if (isMuted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(659.25, t); // E5
+    osc.frequency.exponentialRampToValueAtTime(880.0, t + 0.08); // A5
+
+    gain.gain.setValueAtTime(0.1, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.11);
+  } catch {}
+}
+
+/** Warm harmonic pip for attribute score increment */
+export function playAttributeGain() {
+  if (isMuted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(554.37, t); // C#5
+    osc.frequency.exponentialRampToValueAtTime(739.99, t + 0.09); // F#5
+
+    gain.gain.setValueAtTime(0.09, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.13);
+  } catch {}
+}
+
+/** Resonant brass/bell harmonic swell for relic/badge unlock */
+export function playBadgeUnlock() {
+  if (isMuted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const t = ctx.currentTime;
+    const freqs = [329.63, 493.88, 659.25, 987.77]; // E4, B4, E5, B5
+
+    freqs.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t + idx * 0.06);
+
+      gain.gain.setValueAtTime(0.001, t + idx * 0.06);
+      gain.gain.linearRampToValueAtTime(0.14 - idx * 0.02, t + idx * 0.06 + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + idx * 0.06 + 1.4);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(t + idx * 0.06);
+      osc.stop(t + idx * 0.06 + 1.5);
+    });
+  } catch {}
+}
+
+/** Dramatic dual-octave chord rise for Level Up */
+export function playLevelUp() {
+  if (isMuted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const t = ctx.currentTime;
+    // Dramatic low to high power chord: A2, E3, A3, C#4, E4, A4
+    const notes = [110, 164.81, 220, 277.18, 329.63, 440];
+
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = i < 2 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, t + i * 0.04);
+
+      gain.gain.setValueAtTime(0.001, t + i * 0.04);
+      gain.gain.linearRampToValueAtTime(0.16, t + i * 0.04 + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.04 + 1.8);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(t + i * 0.04);
+      osc.stop(t + i * 0.04 + 1.9);
+    });
+  } catch {}
+}
+
+/** Reverberant cadence for Milestones */
+export function playMilestone() {
+  if (isMuted) return;
+  playClimaxFanfare();
+}
+
+/** Restrained low hollow stone reject sound (Anti-Cheat / Invalid Action) */
+export function playActionRejected() {
+  if (isMuted) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    // Low hollow square/saw wave at 82 Hz
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(82, t);
+    osc.frequency.linearRampToValueAtTime(45, t + 0.3);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(320, t);
+    filter.frequency.linearRampToValueAtTime(100, t + 0.3);
+
+    gain.gain.setValueAtTime(0.25, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(t);
+    osc.stop(t + 0.35);
+  } catch {}
+}
+
+/** Mechanical latch / relic seating snap when equipping a reward */
+export function playRewardEquipped() {
+  if (isMuted) return;
+  playLockSound();
+}

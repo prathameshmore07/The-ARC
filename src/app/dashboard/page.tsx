@@ -28,10 +28,14 @@ import {
   calculateQuestReward,
   ARC_ATTRIBUTES,
   ArcAttributeKey,
+  inferQuestArchetype,
+  QuestArchetype,
 } from '@/lib/game-engine';
 import ArcCelebrationModal, { CelebrationPayload } from '@/components/game/ArcCelebrationModal';
 import NetworkErrorBanner from '@/components/game/NetworkErrorBanner';
 import EmptyState from '@/components/game/EmptyState';
+import AdaptiveArcModal from '@/components/game/AdaptiveArcModal';
+import ComicReactionEngine, { ComicReactionPayload } from '@/components/game/ComicReactionEngine';
 
 interface Task {
   id: string;
@@ -40,7 +44,11 @@ interface Task {
   status: string;
   attributeId: string;
   duration?: string;
+  durationMinutes?: number;
   target?: string;
+  targetValue?: number;
+  unit?: string;
+  archetype?: QuestArchetype;
   attrKey: ArcAttributeKey;
   tag: string;
   attrPoints: number;
@@ -102,44 +110,9 @@ export default function DashboardPage() {
   const [hoveredAttr, setHoveredAttr] = useState<ArcAttributeKey | null>(null);
   const [celebrationData, setCelebrationData] = useState<CelebrationPayload | null>(null);
   const [networkError, setNetworkError] = useState<{ task: Task; message: string } | null>(null);
-  const [recentFeed, setRecentFeed] = useState<any[]>([
-    {
-      id: 're-1',
-      title: 'DEEP WORK (45M)',
-      reward: '+18 CRAFT',
-      detail: '+8 Momentum · +12 Marks',
-      tag: 'VERIFIED FOCUS',
-      time: '2h ago',
-      icon: Award,
-    },
-    {
-      id: 're-2',
-      title: 'TEMPO RUN (3 KM)',
-      reward: '+12 BODY',
-      detail: '+8 Momentum · +10 Marks',
-      tag: 'AEROBIC CADENCE',
-      time: 'Yesterday',
-      icon: Flame,
-    },
-    {
-      id: 're-3',
-      title: 'SEAL OF THE 5K',
-      reward: 'RELIC INSIGNIA',
-      detail: 'Equipped to Profile',
-      tag: 'PERMANENT BADGE',
-      time: '2 days ago',
-      icon: Sparkles,
-    },
-    {
-      id: 're-4',
-      title: 'DEEP READING (20P)',
-      reward: '+8 MIND',
-      detail: '+4 Momentum · +6 Marks',
-      tag: 'COGNITIVE CLARITY',
-      time: '3 days ago',
-      icon: Coins,
-    },
-  ]);
+  const [adaptiveModalOpen, setAdaptiveModalOpen] = useState(false);
+  const [comicReaction, setComicReaction] = useState<ComicReactionPayload | null>(null);
+  const [recentFeed, setRecentFeed] = useState<any[]>([]);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -150,13 +123,50 @@ export default function DashboardPage() {
         setUser(json.user);
         setAttributes(json.attributes || []);
         setTasks(json.tasks || []);
+
+        // Map genuine server completions into the Recent Actions feed
+        if (json.completions && json.completions.length > 0) {
+          const mappedFeed = json.completions.slice(0, 4).map((c: any) => {
+            const taskTitle = (c.task?.title || 'QUEST COMPLETE').toUpperCase();
+            const attrName = (c.task?.attribute?.name || 'CRAFT').toUpperCase();
+            const arch = inferQuestArchetype(taskTitle);
+
+            const diffMs = Date.now() - new Date(c.completedAt).getTime();
+            const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffDays = Math.floor(diffHrs / 24);
+            const timeLabel =
+              diffHrs < 1 ? 'Just now' : diffHrs < 24 ? `${diffHrs}h ago` : diffDays === 1 ? 'Yesterday' : `${diffDays}d ago`;
+
+            return {
+              id: c.id,
+              title: taskTitle,
+              reward: `+${c.xpAwarded} XP`,
+              detail: `+${c.gritAwarded || 10} Marks · ${attrName}`,
+              tag: `${arch} COMPLETED`,
+              time: timeLabel,
+              icon: arch === 'DISTANCE' ? Flame : arch === 'COUNT' ? Sparkles : arch === 'ACTION' ? History : Award,
+            };
+          });
+          setRecentFeed(mappedFeed);
+        }
+
+        // If genuinely new user with no tasks/completions and no onboarding marker, guide to /onboarding
+        if (
+          typeof window !== 'undefined' &&
+          localStorage.getItem('arc_onboarding_completed') !== 'true' &&
+          (!json.tasks || json.tasks.length === 0) &&
+          (!json.completions || json.completions.length === 0)
+        ) {
+          router.replace('/onboarding');
+          return;
+        }
       }
     } catch (err) {
       console.error('Error fetching dashboard', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     fetchDashboard();
@@ -215,25 +225,65 @@ export default function DashboardPage() {
     return map;
   }, [attributes]);
 
-  // Curated Today's actions list (formatted as game quest log rows)
+  // Curated Today's actions list (formatted as game quest log rows with archetype awareness)
   const todayMoves: Task[] = useMemo(() => {
     const pendingTasks = tasks.filter((t) => t.status !== 'done');
     if (pendingTasks.length >= 3) {
       return pendingTasks.slice(0, 4).map((t, idx) => {
         const keys: ArcAttributeKey[] = ['CRAFT', 'BODY', 'MIND', 'PEOPLE'];
         const k = keys[idx % keys.length];
+        const arch = inferQuestArchetype(t.title);
+
+        let targetText = '45 MIN';
+        let targetVal = 45;
+        let unit = 'MIN';
+
+        if (arch === 'DISTANCE') {
+          targetText = '3.0 KM';
+          targetVal = 3.0;
+          unit = 'KM';
+        } else if (arch === 'COUNT') {
+          targetText = '20 PAGES';
+          targetVal = 20;
+          unit = 'Pages';
+        } else if (arch === 'BUILD') {
+          targetText = '3 CHECKPOINTS';
+          targetVal = 3;
+          unit = 'Checkpoints';
+        } else if (arch === 'ACTION') {
+          targetText = 'CONFIRMATION';
+          targetVal = 1;
+          unit = 'Confirmation';
+        } else if (arch === 'SKILL') {
+          targetText = '5 SETS';
+          targetVal = 5;
+          unit = 'Sets';
+        }
+
         return {
           id: t.id,
           code: String(idx + 1).padStart(2, '0'),
           title: t.title.toUpperCase(),
           status: 'pending',
           attributeId: t.attributeId || 'attr-id',
-          target: idx === 0 ? '45 MIN' : idx === 1 ? '3 KM' : idx === 2 ? '20 PAGES' : '15 MIN',
+          archetype: arch,
+          target: targetText,
+          targetValue: targetVal,
+          unit,
           attrKey: k,
-          tag: idx === 0 ? 'CRAFT · FOCUS' : idx === 1 ? 'BODY · ENDURANCE' : idx === 2 ? 'MIND · KNOWLEDGE' : 'PEOPLE · CONNECTION',
+          tag: `${k} · ${arch}`,
           attrPoints: idx === 0 ? 18 : idx === 1 ? 12 : idx === 2 ? 8 : 6,
           momentumPoints: idx === 0 ? 8 : idx === 1 ? 8 : idx === 2 ? 4 : 4,
-          whyItMatters: idx === 0 ? 'Consistency compounds.' : 'Physical endurance elevates mental clarity.',
+          whyItMatters:
+            arch === 'DISTANCE'
+              ? 'Physical endurance elevates mental clarity and somatic resilience.'
+              : arch === 'COUNT'
+              ? 'Tactile reading or volume practice restores fractured attention.'
+              : arch === 'BUILD'
+              ? 'Concrete artifacts prove capability and compound over time.'
+              : arch === 'ACTION'
+              ? 'Intentional real-world presence deepens human trust.'
+              : 'Consistency compounds. Mastery is built in unbroken blocks.',
         };
       });
     }
@@ -244,52 +294,64 @@ export default function DashboardPage() {
         code: '01',
         title: 'DEEP WORK',
         target: '45 MIN',
+        targetValue: 45,
+        unit: 'MIN',
+        archetype: 'FOCUS',
         attrKey: 'CRAFT',
         tag: 'CRAFT · FOCUS',
         status: 'pending',
         attributeId: 'craft-attr',
         attrPoints: 18,
         momentumPoints: 8,
-        whyItMatters: 'Consistency compounds.',
+        whyItMatters: 'Consistency compounds. Mastery is built in blocks of unbroken stillness.',
       },
       {
         id: 'move-tempo-run',
         code: '02',
         title: 'TEMPO RUN',
         target: '3 KM',
+        targetValue: 3.0,
+        unit: 'KM',
+        archetype: 'DISTANCE',
         attrKey: 'BODY',
-        tag: 'BODY · ENDURANCE',
+        tag: 'BODY · DISTANCE',
         status: 'pending',
         attributeId: 'body-attr',
         attrPoints: 12,
         momentumPoints: 8,
-        whyItMatters: 'Aerobic discipline grounds your mental focus.',
+        whyItMatters: 'Aerobic discipline grounds your nervous system and mental stamina.',
       },
       {
         id: 'move-deep-reading',
         code: '03',
         title: 'DEEP READING',
         target: '20 PAGES',
+        targetValue: 20,
+        unit: 'Pages',
+        archetype: 'COUNT',
         attrKey: 'MIND',
-        tag: 'MIND · KNOWLEDGE',
+        tag: 'MIND · COUNT',
         status: 'pending',
         attributeId: 'mind-attr',
         attrPoints: 8,
         momentumPoints: 4,
-        whyItMatters: 'Nonfiction density restores fractured attention.',
+        whyItMatters: 'Nonfiction density restores fractured attention and cognitive endurance.',
       },
       {
         id: 'move-call-someone',
         code: '04',
         title: 'CALL SOMEONE',
-        target: '15 MIN',
+        target: 'CONFIRMATION',
+        targetValue: 1,
+        unit: 'Confirmation',
+        archetype: 'ACTION',
         attrKey: 'PEOPLE',
-        tag: 'PEOPLE · CONNECTION',
+        tag: 'PEOPLE · ACTION',
         status: 'pending',
         attributeId: 'people-attr',
         attrPoints: 6,
         momentumPoints: 4,
-        whyItMatters: 'Intentional presence deepens human trust.',
+        whyItMatters: 'Intentional presence deepens human trust in the real world.',
       },
     ];
   }, [tasks]);
@@ -309,6 +371,49 @@ export default function DashboardPage() {
       let newLevelTitle: string | undefined = undefined;
 
       if (task.id.startsWith('move-')) {
+        try {
+          const dashRes = await fetch('/api/dashboard');
+          if (dashRes.ok) {
+            const dashData = await dashRes.json();
+            const attrMatch = (dashData.attributes || []).find((a: any) => {
+              const aName = (a.name || '').toUpperCase();
+              return aName.includes(task.attrKey) || (task.attrKey === 'BODY' && aName.includes('STRENGTH')) || (task.attrKey === 'MIND' && aName.includes('INTELLECT'));
+            }) || dashData.attributes?.[0];
+
+            if (attrMatch) {
+              const createRes = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: task.title,
+                  attributeId: attrMatch.id,
+                }),
+              });
+              if (createRes.ok) {
+                const createdTask = await createRes.json();
+                await fetch(`/api/tasks/${createdTask.id}/complete`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    archetype: task.archetype,
+                    targetValue: task.targetValue,
+                    countValue: task.targetValue || 20,
+                    distanceValue: task.targetValue || 3.0,
+                    durationMinutes: 45,
+                    elapsedDurationSec: 45 * 60,
+                    completedCheckpoints: ['Verified on Dashboard'],
+                    requiredCheckpoints: 1,
+                    confirmed: true,
+                    skillOutput: 'Verified sovereign completion on dashboard',
+                  }),
+                });
+              }
+            }
+          }
+        } catch (persErr) {
+          console.warn('Could not persist move to database', persErr);
+        }
+
         const newGrit = (user?.grit || 184) + marksGain;
 
         setUser((prev) => (prev ? {
@@ -325,10 +430,23 @@ export default function DashboardPage() {
             streak: newStreak,
           },
         }));
+        await fetchDashboard();
       } else {
         const res = await fetch(`/api/tasks/${task.id}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            archetype: task.archetype,
+            targetValue: task.targetValue,
+            countValue: task.targetValue || 20,
+            distanceValue: task.targetValue || 3.0,
+            durationMinutes: 45,
+            elapsedDurationSec: 45 * 60,
+            completedCheckpoints: ['Verified on Dashboard'],
+            requiredCheckpoints: 1,
+            confirmed: true,
+            skillOutput: 'Verified sovereign completion on dashboard',
+          }),
         });
         if (!res.ok) {
           throw new Error('Quest completion failed on server.');
@@ -521,10 +639,32 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => router.push(`/focus/${nextMove.id}?attr=${nextMove.attrKey}`)}
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            archetype: nextMove.archetype || inferQuestArchetype(nextMove.title),
+                            attr: nextMove.attrKey,
+                            title: nextMove.title,
+                            targetValue: String(nextMove.targetValue || ''),
+                            unit: nextMove.unit || '',
+                            duration: String(nextMove.durationMinutes || 45),
+                          });
+                          router.push(`/focus/${nextMove.id}?${params.toString()}`);
+                        }}
                         className="inline-flex items-center gap-2.5 px-6 py-3 bg-[#C5A059] hover:bg-[#D4B57A] text-[#080C12] font-sans text-xs tracking-[0.2em] uppercase font-semibold transition-all shadow-[0_4px_20px_rgba(197,160,89,0.3)] cursor-pointer"
                       >
-                        <span>Begin Quest</span>
+                        <span>
+                          {nextMove.archetype === 'DISTANCE'
+                            ? 'Begin Run'
+                            : nextMove.archetype === 'COUNT'
+                            ? 'Begin Reading'
+                            : nextMove.archetype === 'BUILD'
+                            ? 'Begin Build'
+                            : nextMove.archetype === 'ACTION'
+                            ? 'Take Action'
+                            : nextMove.archetype === 'SKILL'
+                            ? 'Begin Practice'
+                            : 'Begin Focus'}
+                        </span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </button>
 
@@ -648,10 +788,32 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => router.push(`/focus/${move.id}?attr=${move.attrKey}`)}
+                        onClick={() => {
+                          const params = new URLSearchParams({
+                            archetype: move.archetype || inferQuestArchetype(move.title),
+                            attr: move.attrKey,
+                            title: move.title,
+                            targetValue: String(move.targetValue || ''),
+                            unit: move.unit || '',
+                            duration: String(move.durationMinutes || 45),
+                          });
+                          router.push(`/focus/${move.id}?${params.toString()}`);
+                        }}
                         className="px-4 py-2 text-xs font-mono uppercase tracking-wider text-[#8B97A6] hover:text-[#EDE8DF] border border-[#1A2534] hover:border-[#C5A059] transition-colors rounded cursor-pointer hidden sm:inline-flex items-center gap-1.5"
                       >
-                        <span>Focus</span>
+                        <span>
+                          {move.archetype === 'DISTANCE'
+                            ? 'Run'
+                            : move.archetype === 'COUNT'
+                            ? 'Read'
+                            : move.archetype === 'BUILD'
+                            ? 'Build'
+                            : move.archetype === 'ACTION'
+                            ? 'Act'
+                            : move.archetype === 'SKILL'
+                            ? 'Train'
+                            : 'Focus'}
+                        </span>
                         <ArrowRight className="w-3 h-3" />
                       </button>
 
@@ -919,6 +1081,18 @@ export default function DashboardPage() {
           </div>
         </section>
 
+        {/* ADAPTIVE ARC STRATEGY TRIGGER */}
+        <section className="mb-8">
+          <button
+            type="button"
+            onClick={() => setAdaptiveModalOpen(true)}
+            className="w-full sm:w-auto px-6 py-3 border border-[#C5A059]/40 bg-[#0A0F16] hover:bg-[#101824] text-[#C5A059] font-mono text-[11px] tracking-[0.2em] uppercase font-semibold transition-all duration-200 rounded flex items-center gap-2.5 focus-visible:ring-2 focus-visible:ring-[#C5A059] focus-visible:ring-offset-2 focus-visible:ring-offset-[#06090E]"
+          >
+            <Compass className="w-4 h-4" />
+            <span>CALIBRATE NEXT ARC</span>
+          </button>
+        </section>
+
         {/* 05.5 RECENTLY EARNED — SOVEREIGN ACTIVITY FEED */}
         <section className="mb-16" aria-label="Recently Earned">
           <div className="flex items-center justify-between pb-3 mb-6 border-b border-[#1A222C]">
@@ -933,8 +1107,14 @@ export default function DashboardPage() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {recentFeed.slice(0, 4).map((feed) => {
+          {recentFeed.length === 0 ? (
+            <div className="bg-[#090D13] border border-[#18212D] rounded-lg p-8 text-center">
+              <span className="font-mono text-[10px] tracking-[0.24em] text-[#C5A059] uppercase block mb-2">THE CHRONICLE AWAITS</span>
+              <p className="font-sans text-xs text-[#6B7784]">Complete your first quest to inscribe an entry.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {recentFeed.slice(0, 4).map((feed) => {
               const Icon = feed.icon || Sparkles;
               return (
                 <div
@@ -960,6 +1140,7 @@ export default function DashboardPage() {
               );
             })}
           </div>
+          )}
         </section>
 
         {/* 06. NEXT MILESTONE WITH CINEMATIC THUMBNAIL */}
@@ -1118,6 +1299,22 @@ export default function DashboardPage() {
             handleCompleteMove(taskToRetry);
           }}
           onDismiss={() => setNetworkError(null)}
+        />
+      )}
+      
+      <AdaptiveArcModal
+        open={adaptiveModalOpen}
+        onClose={() => setAdaptiveModalOpen(false)}
+        onAcceptQuests={() => {
+          // Add accepted quests to task list
+          setAdaptiveModalOpen(false);
+        }}
+      />
+      
+      {comicReaction && (
+        <ComicReactionEngine
+          payload={comicReaction}
+          onClose={() => setComicReaction(null)}
         />
       )}
     </AppShell>

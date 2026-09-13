@@ -40,6 +40,20 @@ export async function getAuthUser() {
     } = await supabase.auth.getUser();
 
     if (error || !user) {
+      const cookieStore = await cookies();
+      const demoCookie = cookieStore.get('ee_demo_session');
+      if (demoCookie?.value) {
+        try {
+          const parsed = JSON.parse(demoCookie.value);
+          return {
+            id: parsed.id,
+            email: parsed.email,
+            user_metadata: { name: parsed.name },
+          } as any;
+        } catch {
+          // ignore parsing error
+        }
+      }
       return null;
     }
 

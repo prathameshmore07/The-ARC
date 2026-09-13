@@ -23,6 +23,7 @@ import {
   validateQuestCompletion,
   QUEST_ARCHETYPES,
   DEFAULT_STARTER_QUESTS,
+  calculateQuestReward,
 } from '../src/lib/game-engine.ts';
 
 function assert(condition: boolean, message: string) {
@@ -195,4 +196,137 @@ assert(skillFail.valid === false, 'SKILL with empty output rejected');
 const skillPass = validateQuestCompletion('SKILL', { skillOutput: '5x5 Squats @ 120kg, form steady' });
 assert(skillPass.valid === true, 'SKILL with logged output accepted');
 
-console.log('\n🎉 ALL v4 LIVING LEDGER & MULTI-ARCHETYPE TESTS PASSED PERFECTLY!\n');
+// 8. AI Narrative Onboarding Synthesis
+console.log('\n8. AI Narrative Onboarding Synthesis:');
+const { synthesizeArcProfile } = await import('../src/lib/onboarding-ai.ts');
+
+const artisanAnswers = {
+  q1Become: 'A relentless software builder who ships clean architectures',
+  q2Why: 'To create lasting monuments of craft before time runs out',
+  q3How: 'Deep coding blocks, 5k runs, and shipping features to production',
+  q4Time: '45 MIN',
+};
+
+const artisanProfile = await synthesizeArcProfile(artisanAnswers);
+assert(artisanProfile.primaryPath === 'ARTISAN', `Primary path is ARTISAN (actual: ${artisanProfile.primaryPath})`);
+assert(artisanProfile.dailyMinutes === 45, `Daily minutes parsed as 45 (actual: ${artisanProfile.dailyMinutes})`);
+assert(artisanProfile.firstQuests.length >= 3, `Generated ${artisanProfile.firstQuests.length} starter quests (>= 3)`);
+
+// Check server-authoritative rewards rule:
+for (const quest of artisanProfile.firstQuests) {
+  const expectedReward = calculateQuestReward(quest.difficulty);
+  assert(quest.rewards.xp === expectedReward.xp, `Quest ${quest.code} XP (${quest.rewards.xp}) matches server calculation (${expectedReward.xp})`);
+  assert(quest.rewards.marks === expectedReward.marks, `Quest ${quest.code} Marks match server calculation`);
+}
+
+const warriorAnswers = {
+  q1Become: 'An elite athlete with unbreakable physical stamina',
+  q2Why: 'To achieve mastery over my physical body and energy',
+  q3How: 'Morning 5k tempo runs, gym compound lifting, and cold plunges',
+  q4Time: '60 MIN',
+};
+
+const warriorProfile = await synthesizeArcProfile(warriorAnswers);
+assert(warriorProfile.primaryPath === 'WARRIOR', `Warrior primary path identified as WARRIOR (actual: ${warriorProfile.primaryPath})`);
+assert(warriorProfile.firstQuests.some(q => q.archetype === 'DISTANCE' || q.archetype === 'SKILL'), 'Warrior has physical distance or skill quest');
+
+// 9. Gemini Personal Arc Strategist & Comic Story Reaction System
+console.log('\n9. Gemini Personal Arc Strategist & Graphic Novel Engine:');
+const {
+  validateAndSanitizeArcPlan,
+  generateDeterministicArcPlan,
+  normalizeDifficulty,
+  normalizePath,
+  getReactiveLineQ1,
+} = await import('../src/lib/gemini-strategist.ts');
+
+const { generateDeterministicAdaptiveArc } = await import('../src/lib/adaptive-arc.ts');
+
+// Test 9.1: Progression Integrity Guard (Strips client/AI-injected XP/Marks)
+const maliciousAiResponse = {
+  identity: {
+    becoming: 'A master craftsman',
+    why: 'To build legacy',
+    direction: 'Continuous shipping',
+    sovereignTitle: 'THE SOVEREIGN ARTISAN',
+  },
+  commitment: { minutesPerDay: 45 },
+  paths: { primary: 'ARTISAN', secondary: ['SCHOLAR'] },
+  evaluation: { priorities: ['Ship software'], constraints: ['45 min'], growthAreas: ['Code'], potentialObstacles: ['Distraction'] },
+  milestones: [{ title: 'First Artifact', description: 'Ship v1', measurement: 'Artifacts', target: 1 }],
+  questStrategy: { focusAreas: ['Deep work'], recommendedWeeklyPattern: ['Daily focus'] },
+  initialQuests: [
+    {
+      title: 'SHADY HACK QUEST',
+      archetype: 'BUILD',
+      attribute: 'CRAFT',
+      difficulty: 'II_STANDARD',
+      targetType: 'BUILD',
+      targetValue: 3,
+      unit: 'Checkpoints',
+      description: 'Attempting to inject illegal XP',
+      whyItMatters: 'Testing engine authority',
+      // Attacker or hallucinated values:
+      rewards: { xp: 999999, momentum: 50000, marks: 999999, attr: 999999 },
+    },
+  ],
+};
+
+const sanitizedPlan = validateAndSanitizeArcPlan(maliciousAiResponse, artisanAnswers);
+const expectedLegitReward = calculateQuestReward('II');
+assert(sanitizedPlan.initialQuests[0].rewards?.xp === expectedLegitReward.xp, `AI-supplied XP (999999) stripped and replaced with deterministic XP (${expectedLegitReward.xp})`);
+assert(sanitizedPlan.initialQuests[0].rewards?.marks === expectedLegitReward.marks, `AI-supplied Marks stripped and replaced with deterministic Marks (${expectedLegitReward.marks})`);
+
+// Test 9.2: Difficulty normalization
+assert(normalizeDifficulty('I_LIGHT') === 'I', 'normalizeDifficulty I_LIGHT === I');
+assert(normalizeDifficulty('II_STANDARD') === 'II', 'normalizeDifficulty II_STANDARD === II');
+assert(normalizeDifficulty('III_DEMANDING') === 'III', 'normalizeDifficulty III_DEMANDING === III');
+assert(normalizeDifficulty('IV_MAJOR') === 'IV', 'normalizeDifficulty IV_MAJOR === IV');
+assert(normalizeDifficulty('V_MILESTONE') === 'V', 'normalizeDifficulty V_MILESTONE === V');
+
+// Test 9.3: Path normalization
+assert(normalizePath('CRAFT') === 'ARTISAN', 'normalizePath CRAFT === ARTISAN');
+assert(normalizePath('WARRIOR') === 'WARRIOR', 'normalizePath WARRIOR === WARRIOR');
+assert(normalizePath('MIND') === 'SCHOLAR', 'normalizePath MIND === SCHOLAR');
+assert(normalizePath('PEOPLE') === 'SOCIAL', 'normalizePath PEOPLE === SOCIAL');
+
+// Test 9.4: Deterministic fallback plan generation
+const fallbackPlan = generateDeterministicArcPlan({
+  q1Become: 'A great software developer',
+  q2Why: 'To build things that matter',
+  q3How: 'Write code every single day and ship features',
+  q4Time: '60 MIN',
+});
+assert(fallbackPlan.paths.primary === 'ARTISAN', 'Fallback plan identifies ARTISAN');
+assert(fallbackPlan.initialQuests.length >= 3, 'Fallback plan has >= 3 initial quests');
+assert(fallbackPlan.initialQuests.some(q => q.archetype === 'BUILD'), 'Fallback plan includes BUILD quest');
+
+// Test 9.5: Adaptive Arc evaluation
+const adaptiveRec = generateDeterministicAdaptiveArc({
+  userId: 'test-user',
+  originalGoal: {
+    becoming: 'A master engineer',
+    why: 'Legacy',
+    direction: 'Relentless build',
+    primaryPath: 'ARTISAN',
+  },
+  dailyMinutes: 45,
+  attributes: [
+    { name: 'CRAFT', xp: 500, level: 3, streak: 6, decayStatus: 'stable' },
+    { name: 'BODY', xp: 50, level: 1, streak: 0, decayStatus: 'decaying' },
+    { name: 'MIND', xp: 200, level: 2, streak: 3, decayStatus: 'stable' },
+    { name: 'PEOPLE', xp: 100, level: 1, streak: 1, decayStatus: 'stable' },
+  ],
+  completedQuests: [{ title: 'Deep Code', completedAt: new Date().toISOString() }],
+  totalCompletions: 1,
+});
+assert(adaptiveRec.focusAttribute === 'BODY', `Adaptive Arc identifies lowest/decaying attribute as BODY (actual: ${adaptiveRec.focusAttribute})`);
+assert(adaptiveRec.recommendedQuests.length >= 2, 'Adaptive Arc generates targeted quests');
+
+// Test 9.6: Graphic novel reactive dialogue
+assert(getReactiveLineQ1('I want to become a better software engineer.') === 'THEN BUILD.', 'Developer answer triggers "THEN BUILD."');
+assert(getReactiveLineQ1('I want to become physically strong.') === 'THEN BEGIN WITH ONE MOVE.', 'Strength answer triggers "THEN BEGIN WITH ONE MOVE."');
+assert(getReactiveLineQ1('I want to stop wasting my potential.') === 'THEN GIVE IT DIRECTION.', 'Potential answer triggers "THEN GIVE IT DIRECTION."');
+
+console.log('\n🎉 ALL v4 LIVING LEDGER, GEMINI STRATEGIST & GRAPHIC NOVEL ENGINE TESTS PASSED PERFECTLY!\n');
+

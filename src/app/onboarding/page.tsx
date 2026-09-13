@@ -17,11 +17,19 @@ import {
   Users,
   Clock,
   Compass,
-  Crosshair,
+  Flame,
   Award,
+  RotateCcw,
+  Activity,
   ChevronRight,
 } from 'lucide-react';
-import { ArcAttributeKey, ARC_ATTRIBUTES } from '@/lib/game-engine';
+import {
+  type ArcAttributeKey,
+  ARC_ATTRIBUTES,
+  type QuestArchetype,
+  QUEST_ARCHETYPES,
+  calculateQuestReward,
+} from '@/lib/game-engine';
 import {
   playTick,
   playImpactBeat,
@@ -30,458 +38,319 @@ import {
   startAmbientPulse,
   stopAmbientPulse,
   playClimaxFanfare,
+  playDialogueAppear,
   setMuted,
   getIsMuted,
   getAudioContext,
 } from '@/lib/sound-effects';
+import type { ArcSynthesisProfile, GeneratedQuest } from '@/lib/onboarding-ai';
+import { type ArcPersonalPlan, getReactiveLineQ1 } from '@/lib/gemini-strategist';
 
-// ── Types ────────────────────────────────────────────────────────
+// ── Onboarding Stage Progression (Graphic Novel Story Flow) ───────
 type OnboardingStage =
-  | 'OPENING' // Opening Moment: "THE ARC" / "Every journey begins with a choice."
-  | 'Q1' // "WHAT DO YOU WANT TO BECOME?"
-  | 'Q2' // "WHY DOES THIS MATTER?"
-  | 'Q3' // "HOW WILL YOU GET THERE?"
-  | 'Q4' // "HOW MUCH TIME CAN YOU GIVE EACH DAY?"
-  | 'SYNTHESIS' // Climax Phase A: "UNDERSTANDING YOUR ARC..."
-  | 'CLIMAX'; // Climax Phase B: "YOUR STORY STARTS HERE."
+  | 'INITIAL_CHECK'   // Verifying if user is already onboarded
+  | 'OPENING_PANEL_1' // Dark screen / silhouette / "EVERY ARC BEGINS WITH A CHOICE."
+  | 'OPENING_PANEL_2' // World presence appears: "WHO ARE YOU BECOMING?"
+  | 'Q1'              // "WHAT DO YOU WANT TO BECOME?"
+  | 'Q2'              // "WHY DOES THIS MATTER?"
+  | 'Q3'              // "HOW WILL YOU GET THERE?"
+  | 'Q4'              // "HOW MUCH TIME CAN YOU GIVE EACH DAY?"
+  | 'SYNTHESIS'       // "UNDERSTANDING YOUR ARC..." / "YOUR STORY STARTS HERE."
+  | 'REVEAL'          // YOUR ARC / "YOU HAVE A DIRECTION." / FIRST MOVES
+  | 'FINAL_LAUNCH';   // "YOUR ARC BEGINS NOW." -> comic impact -> route to dashboard
 
-interface ArchetypeOption {
-  id: string;
-  title: string;
-  subtitle: string;
-  attribute: ArcAttributeKey;
-  image: string;
-  description: string;
-}
-
-interface PurposeOption {
-  id: string;
-  statement: string;
-}
-
-interface DisciplineOption {
-  id: string;
-  title: string;
-  domain: string;
-  attribute: ArcAttributeKey;
-  description: string;
-}
-
-// ── Archetype Definitions ────────────────────────────────────────
-const ARCHETYPES: ArchetypeOption[] = [
-  {
-    id: 'builder',
-    title: 'THE MASTER BUILDER',
-    subtitle: 'Craft & Architecture',
-    attribute: 'CRAFT',
-    image: '/images/arc/arc-craft.jpg',
-    description: 'Manifest tangible work, design enduring systems, and ship artifacts that leave a permanent mark.',
-  },
-  {
-    id: 'titan',
-    title: 'THE RESILIENT TITAN',
-    subtitle: 'Bodily Fortitude & Endurance',
-    attribute: 'BODY',
-    image: '/images/arc/arc-body.jpg',
-    description: 'Forge unbreakable stamina, disciplined physical vigor, and absolute sovereignty over your body.',
-  },
-  {
-    id: 'sage',
-    title: 'THE SOVEREIGN SAGE',
-    subtitle: 'Mind, Depth & Insight',
-    attribute: 'MIND',
-    image: '/images/arc/arc-mind.jpg',
-    description: 'Cultivate deep comprehension, razor-sharp attention, and cognitive clarity against constant noise.',
-  },
-  {
-    id: 'ally',
-    title: 'THE GREAT ALLY',
-    subtitle: 'Presence & Community',
-    attribute: 'PEOPLE',
-    image: '/images/arc/arc-people.jpg',
-    description: 'Build enduring alliances, lead through unwavering integrity, and give authentic presence to others.',
-  },
-];
-
-// ── Purpose Options (Q2) ─────────────────────────────────────────
-const PURPOSES: PurposeOption[] = [
-  {
-    id: 'inertia',
-    statement: 'To conquer my own inertia and build compounding discipline before time runs out.',
-  },
-  {
-    id: 'monuments',
-    statement: 'To build enduring monuments of craft and ship work that outlasts me.',
-  },
-  {
-    id: 'pillar',
-    statement: 'To become a pillar of undeniable strength and reliability for the people I care about.',
-  },
-  {
-    id: 'sovereignty',
-    statement: 'To reclaim my attention from hollow distractions and achieve sovereignty over my mind.',
-  },
-];
-
-// ── Disciplines (Q3) ─────────────────────────────────────────────
-const DISCIPLINES: DisciplineOption[] = [
-  {
-    id: 'focus-craft',
-    title: 'Deep focus craft sessions',
-    domain: 'Craft',
-    attribute: 'CRAFT',
-    description: 'Uninterrupted deep work blocks dedicated to high-value creation and shipping.',
-  },
-  {
-    id: 'physical-stamina',
-    title: 'Physical running & lifting',
-    domain: 'Body',
-    attribute: 'BODY',
-    description: 'Aerobic cadence, iron discipline, and daily physical resilience.',
-  },
-  {
-    id: 'deep-reading',
-    title: 'Deep book reading',
-    domain: 'Mind',
-    attribute: 'MIND',
-    description: 'Foundational philosophy, rigorous non-fiction, and zero phone notifications.',
-  },
-  {
-    id: 'software-artifacts',
-    title: 'Shipping software artifacts',
-    domain: 'Craft',
-    attribute: 'CRAFT',
-    description: 'Production code, verifiable builds, and tangible live deployments.',
-  },
-  {
-    id: 'real-connection',
-    title: 'Real-world connection',
-    domain: 'People',
-    attribute: 'PEOPLE',
-    description: 'Active fellowship, meaningful presence calls, and community stewardship.',
-  },
-];
-
-// ── Daily Cadence Options (Q4) ───────────────────────────────────
-const CADENCES = [
+const CADENCE_OPTIONS = [
   { value: '15 MIN', minutes: 15, tag: 'THE SPARK', desc: 'Low barrier, zero excuses, momentum builder' },
   { value: '30 MIN', minutes: 30, tag: 'THE STANDARD', desc: 'Balanced depth, sustainable daily compounding' },
   { value: '45 MIN', minutes: 45, tag: 'THE CRUCIBLE', desc: 'High immersion focus, rapid acceleration' },
-  { value: '60+ MIN', minutes: 60, tag: 'THE FORGE', desc: 'Deep mastery, serious daily transformation' },
+  { value: '60 MIN', minutes: 60, tag: 'THE FORGE', desc: 'Deep mastery, serious transformation' },
+  { value: '90 MIN', minutes: 90, tag: 'THE ASCENT', desc: 'Elite commitment, substantial daily volume' },
+  { value: '120+ MIN', minutes: 120, tag: 'THE ODYSSEY', desc: 'Absolute dedication to sovereign craft' },
 ] as const;
 
 export default function OnboardingPage() {
   const router = useRouter();
 
   // Navigation & Screen State
-  const [stage, setStage] = useState<OnboardingStage>('OPENING');
+  const [stage, setStage] = useState<OnboardingStage>('INITIAL_CHECK');
   const [audioMuted, setAudioMuted] = useState(false);
 
+  // User Narrative Answers (Free-text & Choice)
+  const [q1Become, setQ1Become] = useState('');
+  const [q2Why, setQ2Why] = useState('');
+  const [q3How, setQ3How] = useState('');
+  const [q4Time, setQ4Time] = useState<string>('30 MIN');
+
   // Comic Impact Beat State
-  const [impactText, setImpactText] = useState<string | null>(null);
-  const [impactSubtext, setImpactSubtext] = useState<string | null>(null);
+  const [impactOverlay, setImpactOverlay] = useState<{
+    text: string;
+    subtext?: string;
+  } | null>(null);
 
-  // User Selections
-  const [selectedArchetypeId, setSelectedArchetypeId] = useState<string>('builder');
-  const [customArchetype, setCustomArchetype] = useState<string>('');
-  const [isCustomArchetypeOpen, setIsCustomArchetypeOpen] = useState<boolean>(false);
-
-  const [selectedPurpose, setSelectedPurpose] = useState<string>(PURPOSES[0].statement);
-  const [customPurpose, setCustomPurpose] = useState<string>('');
-  const [isCustomPurposeOpen, setIsCustomPurposeOpen] = useState<boolean>(false);
-
-  const [selectedDisciplines, setSelectedDisciplines] = useState<string[]>([
-    'focus-craft',
-    'physical-stamina',
-    'deep-reading',
-  ]);
-
-  const [selectedCadence, setSelectedCadence] = useState<'15 MIN' | '30 MIN' | '45 MIN' | '60+ MIN'>('30 MIN');
-
-  // Synthesis progress counter
+  // Synthesis & AI State
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [synthesisError, setSynthesisError] = useState<string | null>(null);
   const [synthesisStep, setSynthesisStep] = useState<number>(0);
+  const [profile, setProfile] = useState<ArcSynthesisProfile | null>(null);
+  const [plan, setPlan] = useState<ArcPersonalPlan | null>(null);
+  const [isLaunching, setIsLaunching] = useState(false);
 
-  // Cleanup ambient audio on unmount
+  // ── Guard: Existing Users Redirect ─────────────────────────────
+  useEffect(() => {
+    // Check localStorage first
+    if (typeof window !== 'undefined') {
+      const localCompleted = localStorage.getItem('arc_onboarding_completed');
+      if (localCompleted === 'true') {
+        router.replace('/dashboard');
+        return;
+      }
+
+      // Restore in-progress answers if available
+      try {
+        const savedQ1 = sessionStorage.getItem('arc_draft_q1');
+        const savedQ2 = sessionStorage.getItem('arc_draft_q2');
+        const savedQ3 = sessionStorage.getItem('arc_draft_q3');
+        const savedQ4 = sessionStorage.getItem('arc_draft_q4');
+        if (savedQ1) setQ1Become(savedQ1);
+        if (savedQ2) setQ2Why(savedQ2);
+        if (savedQ3) setQ3How(savedQ3);
+        if (savedQ4) setQ4Time(savedQ4);
+      } catch {}
+    }
+
+    // Check server record
+    async function checkServerStatus() {
+      try {
+        const res = await fetch('/api/onboarding');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.completed) {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('arc_onboarding_completed', 'true');
+            }
+            router.replace('/dashboard');
+            return;
+          }
+        }
+      } catch {
+        // Fallback: continue to onboarding
+      } finally {
+        setStage('OPENING_PANEL_1');
+      }
+    }
+
+    checkServerStatus();
+  }, [router]);
+
+  // Sync draft answers to sessionStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        if (q1Become) sessionStorage.setItem('arc_draft_q1', q1Become);
+        if (q2Why) sessionStorage.setItem('arc_draft_q2', q2Why);
+        if (q3How) sessionStorage.setItem('arc_draft_q3', q3How);
+        if (q4Time) sessionStorage.setItem('arc_draft_q4', q4Time);
+      } catch {}
+    }
+  }, [q1Become, q2Why, q3How, q4Time]);
+
+  // Audio cleanup on unmount
   useEffect(() => {
     return () => {
       stopAmbientPulse();
     };
   }, []);
 
-  // Audio Toggle
   const toggleAudio = () => {
-    const nextState = !audioMuted;
-    setAudioMuted(nextState);
-    setMuted(nextState);
-    if (!nextState) {
+    const next = !audioMuted;
+    setAudioMuted(next);
+    setMuted(next);
+    if (!next) {
       playTick();
     }
   };
 
-  // Trigger Comic Impact Beat
-  const triggerImpactBeat = (
+  // ── Trigger Comic Impact Beat (300-700ms transition) ───────────
+  const triggerTransitionImpact = (
     text: string,
     subtext: string,
-    onComplete: () => void,
-    soundType: 'beat' | 'chime' | 'lock' = 'beat'
+    onFinish: () => void,
+    durationMs: number = 550
   ) => {
-    setImpactText(text);
-    setImpactSubtext(subtext);
-
-    if (soundType === 'beat') {
-      playImpactBeat();
-      setTimeout(() => playChime(), 180);
-    } else if (soundType === 'lock') {
-      playLockSound();
-      setTimeout(() => playChime(), 320);
-    } else {
-      playChime();
-    }
-
-    setTimeout(() => {
-      setImpactText(null);
-      setImpactSubtext(null);
-      onComplete();
-    }, 1100);
-  };
-
-  // ── Handler: Begin Opening Moment ──────────────────────────────
-  const handleBegin = () => {
-    getAudioContext();
+    setImpactOverlay({ text, subtext });
     playImpactBeat();
+
     setTimeout(() => {
-      setStage('Q1');
       playTick();
-    }, 350);
+    }, 180);
+
+    setTimeout(() => {
+      setImpactOverlay(null);
+      onFinish();
+    }, durationMs);
   };
 
-  // ── Handler: Q1 Archetype Selection ────────────────────────────
-  const handleSelectArchetype = (archId: string) => {
-    playTick();
-    setSelectedArchetypeId(archId);
-    setIsCustomArchetypeOpen(false);
+  // ── Handlers: Question Transitions ─────────────────────────────
+  const handleStartOpening = () => {
+    getAudioContext();
+    triggerTransitionImpact("LET'S BEGIN.", 'CHRONICLE INITIATED', () => {
+      setStage('Q1');
+    }, 450);
+  };
 
-    const isBuilder = archId === 'builder';
-    const text = isBuilder ? "THEN LET'S BUILD IT." : 'GOOD.';
-    const subtext = 'IDENTITY SEED PLANTED';
+  const handleSubmitQ1 = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!q1Become.trim()) return;
 
-    triggerImpactBeat(text, subtext, () => {
+    const reaction = getReactiveLineQ1(q1Become);
+    triggerTransitionImpact(reaction, 'IDENTITY REGISTERED', () => {
       setStage('Q2');
-    });
+    }, 550);
   };
 
-  const handleCustomArchetypeSubmit = () => {
-    if (!customArchetype.trim()) return;
-    playTick();
-    setSelectedArchetypeId('custom');
+  const handleSubmitQ2 = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!q2Why.trim()) return;
 
-    triggerImpactBeat("THEN LET'S BUILD IT.", 'CUSTOM IDENTITY REGISTERED', () => {
-      setStage('Q2');
-    });
-  };
-
-  // ── Handler: Q2 Purpose Selection ──────────────────────────────
-  const handleSelectPurpose = (purpose: string) => {
-    playTick();
-    setSelectedPurpose(purpose);
-    setIsCustomPurposeOpen(false);
-
-    triggerImpactBeat('NOTED. ANCHOR DROPPED.', 'CORE PURPOSE INSCRIBED', () => {
+    triggerTransitionImpact("THAT'S YOUR REASON.", 'ANCHOR INSCRIBED', () => {
       setStage('Q3');
-    });
+    }, 550);
   };
 
-  const handleCustomPurposeSubmit = () => {
-    if (!customPurpose.trim()) return;
-    playTick();
-    setSelectedPurpose(customPurpose.trim());
+  const handleSubmitQ3 = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!q3How.trim()) return;
 
-    triggerImpactBeat('NOTED. ANCHOR DROPPED.', 'PERSONAL ANCHOR INSCRIBED', () => {
-      setStage('Q3');
-    });
-  };
-
-  // ── Handler: Q3 Disciplines Toggle ─────────────────────────────
-  const toggleDiscipline = (discId: string) => {
-    playTick();
-    setSelectedDisciplines((prev) => {
-      if (prev.includes(discId)) {
-        if (prev.length > 1) {
-          return prev.filter((id) => id !== discId);
-        }
-        return prev;
-      } else {
-        return [...prev, discId];
-      }
-    });
-  };
-
-  const handleConfirmDisciplines = () => {
-    if (selectedDisciplines.length === 0) return;
-    triggerImpactBeat('THE BLUEPRINT TAKES SHAPE.', 'DISCIPLINARY BASELINE ESTABLISHED', () => {
+    triggerTransitionImpact('NOW WE HAVE A DIRECTION.', 'BLUEPRINT ESTABLISHED', () => {
       setStage('Q4');
-    });
+    }, 550);
   };
 
-  // ── Handler: Q4 Cadence Selection ──────────────────────────────
-  const handleSelectCadence = (cadence: '15 MIN' | '30 MIN' | '45 MIN' | '60+ MIN') => {
-    setSelectedCadence(cadence);
+  const handleSelectQ4 = (cadence: string) => {
+    setQ4Time(cadence);
+    playLockSound();
 
-    triggerImpactBeat(
-      'DISCIPLINE LOCKED.',
-      'DAILY RECURRENCE COMMITTED',
-      () => {
-        // Transition into Synthesis state
-        setStage('SYNTHESIS');
-        startAmbientPulse();
-
-        // Staged diagnostic pulse sequence
-        setTimeout(() => setSynthesisStep(1), 700);
-        setTimeout(() => setSynthesisStep(2), 1400);
-        setTimeout(() => {
-          stopAmbientPulse();
-          setStage('CLIMAX');
-          playClimaxFanfare();
-        }, 2200);
-      },
-      'lock'
-    );
+    // Begin AI Synthesis phase
+    triggerTransitionImpact('DISCIPLINE LOCKED.', 'COMMITMENT CONFIRMED', () => {
+      setStage('SYNTHESIS');
+      runAiSynthesis(cadence);
+    }, 550);
   };
 
-  // ── Resolved User Identity & Title ─────────────────────────────
-  const resolvedArchetype = ARCHETYPES.find((a) => a.id === selectedArchetypeId) || {
-    id: 'custom',
-    title: customArchetype.trim().toUpperCase() || 'THE SOVEREIGN BUILDER',
-    subtitle: 'Custom Inscribed Calling',
-    attribute: 'CRAFT' as ArcAttributeKey,
-    image: '/images/arc/arc-craft.jpg',
-    description: 'A sovereign path forged through deliberate creation and daily discipline.',
-  };
+  // ── AI Synthesis Execution ─────────────────────────────────────
+  const runAiSynthesis = async (cadenceValue: string = q4Time) => {
+    setIsSynthesizing(true);
+    setSynthesisError(null);
+    setSynthesisStep(0);
+    startAmbientPulse();
 
-  // Computed Baseline Attributes based on selections
-  const computedAttributes = {
-    CRAFT: 60 + (selectedArchetypeId === 'builder' ? 25 : 0) + (selectedDisciplines.includes('focus-craft') ? 10 : 0) + (selectedDisciplines.includes('software-artifacts') ? 10 : 0),
-    BODY: 55 + (selectedArchetypeId === 'titan' ? 25 : 0) + (selectedDisciplines.includes('physical-stamina') ? 15 : 0),
-    MIND: 58 + (selectedArchetypeId === 'sage' ? 25 : 0) + (selectedDisciplines.includes('deep-reading') ? 15 : 0),
-    PEOPLE: 50 + (selectedArchetypeId === 'ally' ? 25 : 0) + (selectedDisciplines.includes('real-connection') ? 15 : 0),
-  };
+    // Timed diagnostic beats
+    const step1 = setTimeout(() => setSynthesisStep(1), 500);
+    const step2 = setTimeout(() => setSynthesisStep(2), 1100);
 
-  // Generated Starter Quests (Diverse archetypes: 1 Focus, 1 Distance/Count, 1 Build/Action)
-  const durationNumber = selectedCadence === '15 MIN' ? 15 : selectedCadence === '45 MIN' ? 45 : selectedCadence === '60+ MIN' ? 60 : 30;
-
-  const starterQuests = [
-    {
-      id: 'quest-focus',
-      taskId: 'quest-014',
-      type: 'FOCUS RITUAL',
-      title: `DEEP WORK · ${selectedCadence}`,
-      attr: 'CRAFT' as ArcAttributeKey,
-      desc: 'One uninterrupted deep work session on your primary craft. Silence all communications.',
-      target: selectedCadence,
-      reward: `+18 CRAFT · +8 MOMENTUM · +15 MARKS`,
-      image: '/images/arc/arc-craft.jpg',
-      isPrimaryFocus: true,
-    },
-    {
-      id: 'quest-distance-count',
-      taskId: selectedDisciplines.includes('physical-stamina') ? 'quest-002' : 'quest-008',
-      type: 'DISTANCE / COUNT',
-      title: selectedDisciplines.includes('physical-stamina') ? 'TEMPO RUN · 3 KM' : 'DEEP READING · 15 PAGES',
-      attr: (selectedDisciplines.includes('physical-stamina') ? 'BODY' : 'MIND') as ArcAttributeKey,
-      desc: selectedDisciplines.includes('physical-stamina')
-        ? 'Clear physical inertia with a steady aerobic cadence outside or on track.'
-        : 'Absorb foundational non-fiction text with complete presence and zero device glances.',
-      target: selectedDisciplines.includes('physical-stamina') ? '3 KM' : '15 PAGES',
-      reward: selectedDisciplines.includes('physical-stamina')
-        ? '+14 BODY · +6 MOMENTUM · +10 MARKS'
-        : '+14 MIND · +6 MOMENTUM · +10 MARKS',
-      image: selectedDisciplines.includes('physical-stamina') ? '/images/arc/arc-body.jpg' : '/images/arc/arc-mind.jpg',
-      isPrimaryFocus: false,
-    },
-    {
-      id: 'quest-build-action',
-      taskId: selectedDisciplines.includes('real-connection') ? 'quest-021' : 'quest-060',
-      type: 'BUILD / ACTION',
-      title: selectedDisciplines.includes('real-connection') ? 'GENUINE PRESENCE CALL' : 'SHIP ONE FEATURE',
-      attr: (selectedDisciplines.includes('real-connection') ? 'PEOPLE' : 'CRAFT') as ArcAttributeKey,
-      desc: selectedDisciplines.includes('real-connection')
-        ? 'Reach out to an ally or mentor with undivided presence and zero multitasking.'
-        : 'Take a concrete piece of code or architectural artifact and push it to production.',
-      target: '1 MILESTONE',
-      reward: selectedDisciplines.includes('real-connection')
-        ? '+16 PEOPLE · +10 MOMENTUM · +12 MARKS'
-        : '+16 CRAFT · +10 MOMENTUM · +12 MARKS',
-      image: selectedDisciplines.includes('real-connection') ? '/images/arc/arc-people.jpg' : '/images/arc/arc-artisan.jpg',
-      isPrimaryFocus: false,
-    },
-  ];
-
-  // ── Handler: Enter The Arc ─────────────────────────────────────
-  const handleEnterArc = async (directTaskId?: string) => {
-    playImpactBeat();
-
-    // Persist Arc state to localStorage
-    if (typeof window !== 'undefined') {
-      try {
-        const arcProfile = {
-          archetypeId: selectedArchetypeId,
-          archetypeTitle: resolvedArchetype.title,
-          purpose: selectedPurpose,
-          disciplines: selectedDisciplines,
-          cadence: selectedCadence,
-          attributes: computedAttributes,
-          createdAt: new Date().toISOString(),
-        };
-        localStorage.setItem('arc_user_profile', JSON.stringify(arcProfile));
-        localStorage.setItem('arc_primary_path', selectedArchetypeId);
-        localStorage.setItem('arc_onboarding_completed', 'true');
-        localStorage.setItem('arc_starter_quests', JSON.stringify(starterQuests));
-      } catch (err) {
-        console.error('Failed to save to localStorage', err);
-      }
-    }
-
-    // Ensure user session exists by attempting demo-login silently if unauthenticated
     try {
-      await fetch('/api/auth/demo-login', {
+      const res = await fetch('/api/onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: resolvedArchetype.title,
+          q1Become: q1Become.trim(),
+          q2Why: q2Why.trim(),
+          q3How: q3How.trim(),
+          q4Time: cadenceValue,
         }),
       });
-    } catch {
-      // Ignore background auth error
+
+      const data = await res.json();
+
+      if (!res.ok || !data.profile) {
+        throw new Error(data.error || 'The Void interrupted the synthesis');
+      }
+
+      setProfile(data.profile);
+      if (data.plan) {
+        setPlan(data.plan);
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('arc_personal_plan', JSON.stringify(data.plan));
+          } catch {}
+        }
+      }
+
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('arc_user_profile', JSON.stringify(data.profile));
+          localStorage.setItem('arc_primary_path', data.profile.primaryPath.toLowerCase());
+          localStorage.setItem('arc_onboarding_completed', 'true');
+          localStorage.setItem('arc_starter_quests', JSON.stringify(data.profile.firstQuests));
+        } catch {}
+      }
+
+      // Transition to Climax Reveal
+      setTimeout(() => {
+        stopAmbientPulse();
+        setStage('REVEAL');
+        playClimaxFanfare();
+      }, 1600);
+    } catch (err: any) {
+      stopAmbientPulse();
+      console.error('Synthesis error:', err);
+      setSynthesisError(err.message || 'Unable to contact the chronicler. Please retry.');
+    } finally {
+      setIsSynthesizing(false);
+      clearTimeout(step1);
+      clearTimeout(step2);
+    }
+  };
+
+  // ── Handler: Final Moment & Launch ─────────────────────────────
+  const handleFinalLaunch = (targetTaskId?: string) => {
+    setIsLaunching(true);
+    playImpactBeat();
+
+    // Persist to localStorage
+    if (typeof window !== 'undefined' && profile) {
+      try {
+        localStorage.setItem('arc_user_profile', JSON.stringify(profile));
+        localStorage.setItem('arc_primary_path', profile.primaryPath.toLowerCase());
+        localStorage.setItem('arc_onboarding_completed', 'true');
+        localStorage.setItem('arc_starter_quests', JSON.stringify(profile.firstQuests));
+        sessionStorage.removeItem('arc_draft_q1');
+        sessionStorage.removeItem('arc_draft_q2');
+        sessionStorage.removeItem('arc_draft_q3');
+        sessionStorage.removeItem('arc_draft_q4');
+      } catch {}
     }
 
-    // Navigate to target route
-    if (directTaskId) {
-      router.push(`/focus/${directTaskId}?attr=${resolvedArchetype.attribute}&duration=${durationNumber}`);
-    } else {
-      router.push('/dashboard');
-    }
+    // Brief punch celebration, then route
+    setTimeout(() => {
+      if (targetTaskId) {
+        router.push(`/focus/${targetTaskId}?duration=${profile?.dailyMinutes || 30}`);
+      } else {
+        router.push('/dashboard');
+      }
+    }, 450);
   };
 
   return (
     <main className="min-h-screen bg-[#06090E] text-[#EDE8DF] font-sans relative selection:bg-[#C5A059]/30 selection:text-[#F7F5F0] overflow-x-hidden flex flex-col justify-between">
-      {/* ── Graphic Novel Background Texture & Vignette ───────────── */}
+      {/* ── Graphic Novel Background Texture & Subtle Grain ─────────── */}
       <div
-        className="fixed inset-0 pointer-events-none z-0 opacity-40"
+        className="fixed inset-0 pointer-events-none z-0 opacity-35"
         style={{
           backgroundImage: `
             radial-gradient(rgba(197, 160, 89, 0.08) 1px, transparent 0),
-            radial-gradient(circle at 50% 30%, rgba(197, 160, 89, 0.07) 0%, transparent 70%)
+            radial-gradient(circle at 50% 35%, rgba(197, 160, 89, 0.06) 0%, transparent 70%)
           `,
-          backgroundSize: '28px 28px, 100% 100%',
+          backgroundSize: '24px 24px, 100% 100%',
         }}
       />
       {/* Restrained Crimson Edge Glow */}
-      <div className="fixed top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#C5A059]/80 to-transparent z-20" />
-      <div className="fixed -bottom-32 -left-32 w-96 h-96 bg-[#8F1D1D]/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed -top-32 -right-32 w-96 h-96 bg-[#C5A059]/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="fixed top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-[#C5A059]/80 to-transparent z-20" />
+      <div className="fixed -bottom-40 -left-40 w-96 h-96 bg-[#8F1D1D]/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="fixed -top-40 -right-40 w-96 h-96 bg-[#C5A059]/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* ── Top Header Strip ──────────────────────────────────────── */}
-      <header className="relative z-20 w-full max-w-6xl mx-auto px-6 py-5 flex items-center justify-between border-b border-[#182230]/80">
+      <header className="relative z-20 w-full max-w-5xl mx-auto px-6 py-5 flex items-center justify-between border-b border-[#182230]/80">
         <div className="flex items-center gap-3">
           <div className="w-6 h-6 border border-[#C5A059]/60 flex items-center justify-center rotate-45 bg-[#0C121B]">
             <div className="w-2.5 h-2.5 bg-[#C5A059] -rotate-45" />
@@ -491,24 +360,24 @@ export default function OnboardingPage() {
               THE ARC
             </span>
             <span className="font-mono text-[9px] tracking-[0.2em] text-[#8692A0] uppercase block">
-              INITIATION CHRONICLE · NOIR v4
+              SOVEREIGN NARRATIVE INITIATION
             </span>
           </div>
         </div>
 
-        {/* Audio Toggle & Act Progression */}
+        {/* Act Progression & Audio Toggle */}
         <div className="flex items-center gap-4">
-          {stage !== 'OPENING' && stage !== 'SYNTHESIS' && (
+          {stage !== 'INITIAL_CHECK' && stage !== 'OPENING_PANEL_1' && stage !== 'OPENING_PANEL_2' && stage !== 'SYNTHESIS' && (
             <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono tracking-widest uppercase text-[#738090]">
-              <span className={stage === 'Q1' ? 'text-[#C5A059] font-bold' : ''}>I. IDENTITY</span>
+              <span className={stage === 'Q1' ? 'text-[#C5A059] font-bold' : ''}>I. BECOME</span>
               <span className="text-[#324050]">/</span>
-              <span className={stage === 'Q2' ? 'text-[#C5A059] font-bold' : ''}>II. ANCHOR</span>
+              <span className={stage === 'Q2' ? 'text-[#C5A059] font-bold' : ''}>II. REASON</span>
               <span className="text-[#324050]">/</span>
-              <span className={stage === 'Q3' ? 'text-[#C5A059] font-bold' : ''}>III. DISCIPLINES</span>
+              <span className={stage === 'Q3' ? 'text-[#C5A059] font-bold' : ''}>III. DIRECTION</span>
               <span className="text-[#324050]">/</span>
-              <span className={stage === 'Q4' ? 'text-[#C5A059] font-bold' : ''}>IV. CADENCE</span>
+              <span className={stage === 'Q4' ? 'text-[#C5A059] font-bold' : ''}>IV. TIME</span>
               <span className="text-[#324050]">/</span>
-              <span className={stage === 'CLIMAX' ? 'text-[#C5A059] font-bold' : ''}>FINALE</span>
+              <span className={stage === 'REVEAL' ? 'text-[#C5A059] font-bold' : ''}>YOUR ARC</span>
             </div>
           )}
 
@@ -533,33 +402,48 @@ export default function OnboardingPage() {
         </div>
       </header>
 
-      {/* ── Comic Impact Beat Overlay ───────────────────────────────── */}
+      {/* ── Graphic Novel Speed-Line Transition Impact Overlay ────── */}
       <AnimatePresence>
-        {impactText && (
+        {impactOverlay && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.94 }}
+            initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 1.05 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-[#06090E]/95 backdrop-blur-md p-6"
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#06090E]/94 backdrop-blur-md p-6 select-none"
           >
-            {/* Radial Impact Shockwave */}
-            <div
-              className="absolute inset-0 pointer-events-none opacity-20"
-              style={{
-                backgroundImage:
-                  'repeating-conic-gradient(from 0deg, rgba(197, 160, 89, 0.12) 0deg 15deg, transparent 15deg 30deg)',
-              }}
-            />
-            {/* Center Impact Glow Ring */}
-            <div className="absolute w-80 h-80 rounded-full border border-[#C5A059]/30 animate-ping opacity-40 pointer-events-none" />
+            {/* 48-Ray Comic Speed-Line Burst */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-25">
+              <svg viewBox="0 0 800 800" className="w-[110vmax] h-[110vmax]" fill="none">
+                {Array.from({ length: 48 }).map((_, i) => {
+                  const angle = (i * 360) / 48;
+                  const isLong = i % 2 === 0;
+                  const isGold = i % 4 === 0;
+                  return (
+                    <line
+                      key={i}
+                      x1="400"
+                      y1="400"
+                      x2={400 + 400 * Math.cos((angle * Math.PI) / 180)}
+                      y2={400 + 400 * Math.sin((angle * Math.PI) / 180)}
+                      stroke={isGold ? '#C5A059' : '#EDE8DF'}
+                      strokeOpacity={isGold ? 0.4 : 0.15}
+                      strokeWidth={isGold ? 2 : 1}
+                      strokeDasharray={isLong ? '8 6' : 'none'}
+                    />
+                  );
+                })}
+              </svg>
+            </div>
 
             <div className="relative z-10 max-w-xl text-center">
-              <span className="font-mono text-[11px] tracking-[0.32em] text-[#C5A059] uppercase block mb-3 font-semibold">
-                {impactSubtext || 'CANON CONFIRMED'}
-              </span>
+              {impactOverlay.subtext && (
+                <span className="font-mono text-[11px] tracking-[0.32em] text-[#C5A059] uppercase block mb-3 font-semibold">
+                  {impactOverlay.subtext}
+                </span>
+              )}
               <h2 className="font-display font-bold text-4xl sm:text-6xl text-[#F7F5F0] tracking-tight uppercase drop-shadow-[0_4px_30px_rgba(197,160,89,0.4)]">
-                {impactText}
+                {impactOverlay.text}
               </h2>
               <div className="mt-6 flex items-center justify-center gap-3">
                 <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-[#C5A059]" />
@@ -574,59 +458,104 @@ export default function OnboardingPage() {
       {/* ── Main Content Container ─────────────────────────────────── */}
       <div className="relative z-10 w-full max-w-4xl mx-auto px-6 py-10 sm:py-16 flex-1 flex flex-col justify-center">
         {/* ═══════════════════════════════════════════════════════════
-            SCREEN 0: THE OPENING MOMENT
+            PANEL 01: "EVERY ARC BEGINS WITH A CHOICE."
         ═══════════════════════════════════════════════════════════ */}
-        {stage === 'OPENING' && (
+        {stage === 'OPENING_PANEL_1' && (
           <motion.div
-            key="opening"
-            initial={{ opacity: 0, y: 16 }}
+            key="panel1"
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.4 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
             className="text-center max-w-2xl mx-auto"
           >
-            {/* Graphic Novel Issue Header */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#243346] bg-[#0A0F16] mb-8">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#C5A059] animate-pulse" />
-              <span className="font-mono text-[10px] tracking-[0.24em] text-[#98A6B6] uppercase">
-                PROLOGUE · THE INITIATION
-              </span>
+            {/* Subtle environmental silhouette from existing assets */}
+            <div className="relative w-full h-72 sm:h-96 rounded-2xl overflow-hidden border border-[#C5A059]/40 mb-8 bg-[#04060A] shadow-[0_20px_60px_rgba(0,0,0,0.95)]">
+              <Image
+                src="/images/hero_arc_cinematic.jpg"
+                alt="Environmental silhouette"
+                fill
+                priority
+                className="object-cover object-center grayscale contrast-150 opacity-40 mix-blend-luminosity"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#06090E] via-transparent to-[#06090E]/80" />
+
+              {/* Graphic Novel Speech / Caption Box */}
+              <div className="absolute bottom-6 left-6 right-6 p-5 rounded-lg bg-[#0A0F17]/95 border border-[#C5A059]/40 shadow-[0_4px_24px_rgba(0,0,0,0.8)] text-center">
+                <span className="font-mono text-[9px] tracking-[0.3em] uppercase text-[#C5A059] font-semibold block mb-1">
+                  PANEL 01 · PROLOGUE
+                </span>
+                <p className="font-serif italic text-xl sm:text-2xl text-[#F7F5F0]">
+                  &ldquo;EVERY ARC BEGINS WITH A CHOICE.&rdquo;
+                </p>
+              </div>
             </div>
 
-            {/* Title */}
-            <h1 className="font-display font-semibold text-5xl sm:text-7xl lg:text-8xl text-[#F7F5F0] tracking-tight uppercase leading-[0.95] mb-6">
-              THE ARC
-            </h1>
-
-            {/* Subtitle with Comic Serif Depth */}
-            <p className="font-serif italic text-xl sm:text-2xl text-[#C5A059] max-w-lg mx-auto mb-10 leading-relaxed">
-              &ldquo;Every journey begins with a choice.&rdquo;
-            </p>
-
-            <p className="font-sans text-sm text-[#8F9BA8] max-w-md mx-auto mb-12 font-light leading-relaxed">
-              This is not a checklist or a survey. This is the dramatic beginning of your story. Define the archetype you
-              will embody in the ledger.
-            </p>
-
-            {/* Cinematic Transition Button: "LET'S BEGIN." */}
-            <div className="relative inline-block group">
-              {/* Pulsing Radial Impact Beat Glow */}
-              <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-[#C5A059]/40 via-[#8F1D1D]/40 to-[#C5A059]/40 opacity-75 blur group-hover:opacity-100 transition duration-500 group-hover:duration-200 animate-tilt" />
-
-              <button
-                type="button"
-                onClick={handleBegin}
-                className="relative px-10 py-5 bg-[#C5A059] hover:bg-[#D4B57A] text-[#06090E] text-xs font-sans tracking-[0.28em] uppercase font-bold transition-all rounded shadow-[0_10px_40px_rgba(197,160,89,0.35)] flex items-center gap-3 cursor-pointer"
-              >
-                <span>LET&apos;S BEGIN.</span>
-                <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                playDialogueAppear();
+                setStage('OPENING_PANEL_2');
+              }}
+              className="px-9 py-4 bg-[#C5A059] hover:bg-[#D4B57A] text-[#06090E] text-xs font-mono tracking-[0.25em] uppercase font-bold transition-all rounded shadow-[0_0_30px_rgba(197,160,89,0.3)] flex items-center gap-2.5 mx-auto cursor-pointer"
+            >
+              <span>CONTINUE</span>
+              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+            </button>
           </motion.div>
         )}
 
         {/* ═══════════════════════════════════════════════════════════
-            Q1: WHAT DO YOU WANT TO BECOME?
+            PANEL 02: "WHO ARE YOU BECOMING?"
+        ═══════════════════════════════════════════════════════════ */}
+        {stage === 'OPENING_PANEL_2' && (
+          <motion.div
+            key="panel2"
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.97 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+            className="text-center max-w-2xl mx-auto"
+          >
+            {/* World Presence / Silhouette Treatment */}
+            <div className="relative w-full h-72 sm:h-96 rounded-2xl overflow-hidden border-2 border-[#C5A059] mb-8 bg-[#04060A] shadow-[0_20px_80px_rgba(197,160,89,0.25)]">
+              <Image
+                src="/images/manifesto_tableau.jpg"
+                alt="World Presence"
+                fill
+                priority
+                className="object-cover object-center grayscale contrast-175 opacity-55"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#06090E] via-transparent to-[#06090E]/60" />
+
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+                <span className="font-mono text-[10px] tracking-[0.35em] uppercase text-[#C5A059] font-bold block mb-3">
+                  THE SOVEREIGN VOICE
+                </span>
+                <h2 className="font-display font-black text-3xl sm:text-5xl text-[#F7F5F0] tracking-wider uppercase drop-shadow-[0_4px_30px_rgba(0,0,0,0.95)]">
+                  &ldquo;WHO ARE YOU BECOMING?&rdquo;
+                </h2>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                getAudioContext();
+                triggerTransitionImpact("LET'S BEGIN.", 'CHRONICLE INITIATED', () => {
+                  setStage('Q1');
+                }, 450);
+              }}
+              className="px-10 py-4.5 bg-[#C5A059] hover:bg-[#D4B57A] text-[#06090E] text-xs font-mono tracking-[0.28em] uppercase font-black transition-all rounded shadow-[0_0_35px_rgba(197,160,89,0.35)] flex items-center gap-3 mx-auto cursor-pointer active:scale-98"
+            >
+              <span>LET&apos;S BEGIN.</span>
+              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          </motion.div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════
+            QUESTION 01: WHAT DO YOU WANT TO BECOME?
         ═══════════════════════════════════════════════════════════ */}
         {stage === 'Q1' && (
           <motion.div
@@ -634,128 +563,90 @@ export default function OnboardingPage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
-            className="w-full"
+            transition={{ duration: 0.3 }}
+            className="w-full max-w-2xl mx-auto"
           >
-            {/* Act Caption */}
+            {/* Directional Header */}
             <div className="flex items-center justify-between border-b border-[#182332] pb-4 mb-8">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[11px] tracking-[0.28em] text-[#C5A059] uppercase font-semibold">
-                  ACT I · THE EMBODIMENT
-                </span>
-              </div>
+              <span className="font-mono text-[11px] tracking-[0.28em] text-[#C5A059] uppercase font-semibold">
+                QUESTION 01
+              </span>
               <span className="font-mono text-[10px] tracking-widest text-[#738090]">
-                CHAPTER 1 / 4
+                1 / 4
               </span>
             </div>
 
-            {/* Question Title */}
             <h2 className="font-display font-semibold text-3xl sm:text-5xl text-[#F7F5F0] tracking-tight uppercase mb-3">
-              What do you want to become?
+              WHAT DO YOU WANT TO BECOME?
             </h2>
-            <p className="font-serif italic text-base sm:text-lg text-[#9CA3AF] mb-8 max-w-xl">
-              Don&apos;t think about tasks. Think about the person you want to become.
+            <p className="font-serif italic text-base sm:text-lg text-[#9CA3AF] mb-8">
+              &ldquo;Don&apos;t think about tasks. Think about the person you want to become.&rdquo;
             </p>
 
-            {/* Archetypes Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-              {ARCHETYPES.map((arch) => {
-                const isSelected = selectedArchetypeId === arch.id && !isCustomArchetypeOpen;
-                return (
-                  <button
-                    key={arch.id}
-                    type="button"
-                    onClick={() => handleSelectArchetype(arch.id)}
-                    className={`relative text-left rounded-lg overflow-hidden border p-5 transition-all cursor-pointer group flex flex-col justify-between h-44 ${
-                      isSelected
-                        ? 'border-[#C5A059] bg-[#0E1520] ring-1 ring-[#C5A059]/50 shadow-[0_4px_30px_rgba(197,160,89,0.18)]'
-                        : 'border-[#1C2736] bg-[#0A0F16] hover:border-[#384A62] hover:bg-[#0E141E]'
-                    }`}
-                  >
-                    {/* Background Artwork */}
-                    <div className="absolute inset-0 opacity-20 group-hover:opacity-30 transition-opacity">
-                      <Image
-                        src={arch.image}
-                        alt={arch.title}
-                        fill
-                        className="object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#0A0F16] via-[#0A0F16]/80 to-transparent" />
-                    </div>
-
-                    {/* Top Tag */}
-                    <div className="relative z-10 flex items-center justify-between">
-                      <span className="font-mono text-[9px] tracking-[0.22em] text-[#C5A059] uppercase font-semibold">
-                        {arch.subtitle}
-                      </span>
-                      <span className="font-mono text-[9px] text-[#738090]">
-                        [{arch.attribute}]
-                      </span>
-                    </div>
-
-                    {/* Bottom Title & Description */}
-                    <div className="relative z-10 mt-auto">
-                      <h3 className="font-display font-semibold text-xl text-[#F7F5F0] uppercase tracking-wide group-hover:text-[#C5A059] transition-colors">
-                        {arch.title}
-                      </h3>
-                      <p className="font-sans text-xs text-[#8A96A6] font-light mt-1 line-clamp-2">
-                        {arch.description}
-                      </p>
-                    </div>
-
-                    {/* Corner Crosshairs */}
-                    <div className="absolute top-2 right-2 text-[#28374A] group-hover:text-[#C5A059]/60 transition-colors font-mono text-[10px]">
-                      +
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Custom Write-In Accordion */}
-            <div className="border border-[#1C2736] rounded-lg bg-[#0A0F16] overflow-hidden mb-6">
-              <button
-                type="button"
-                onClick={() => {
-                  playTick();
-                  setIsCustomArchetypeOpen(!isCustomArchetypeOpen);
-                }}
-                className="w-full px-5 py-3.5 flex items-center justify-between text-left text-xs font-mono tracking-wider uppercase text-[#9CA3AF] hover:text-[#F7F5F0] hover:bg-[#0E141E] transition-colors cursor-pointer"
-              >
-                <span>Or inscribe your custom archetype...</span>
-                <span className="text-[#C5A059] text-sm">{isCustomArchetypeOpen ? '−' : '+'}</span>
-              </button>
-
-              {isCustomArchetypeOpen && (
-                <div className="p-5 border-t border-[#182332] bg-[#070B10]">
-                  <label className="block text-[10px] font-mono tracking-widest text-[#738090] uppercase mb-2">
-                    CUSTOM IDENTITY TITLE (E.G. THE SILENT CRAFTSMAN, THE RELENTLESS NOMAD)
-                  </label>
-                  <div className="flex gap-3">
-                    <input
-                      type="text"
-                      value={customArchetype}
-                      onChange={(e) => setCustomArchetype(e.target.value)}
-                      placeholder="ENTER YOUR ARCHETYPE..."
-                      className="flex-1 bg-[#0A0F16] border border-[#233144] focus:border-[#C5A059] px-4 py-3 rounded text-sm text-[#F7F5F0] placeholder-[#505D6E] outline-none font-sans uppercase tracking-wider"
-                    />
-                    <button
-                      type="button"
-                      disabled={!customArchetype.trim()}
-                      onClick={handleCustomArchetypeSubmit}
-                      className="px-6 py-3 bg-[#C5A059] disabled:opacity-40 hover:bg-[#D4B57A] text-[#06090E] text-xs font-sans tracking-widest uppercase font-bold transition-all rounded cursor-pointer"
-                    >
-                      LOCK IN &rarr;
-                    </button>
-                  </div>
+            <form onSubmit={handleSubmitQ1} className="space-y-6">
+              <div className="relative rounded-lg border border-[#233144] focus-within:border-[#C5A059] bg-[#0A0F16] p-4 transition-all focus-within:shadow-[0_0_25px_rgba(197,160,89,0.15)]">
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={q1Become}
+                  onChange={(e) => setQ1Become(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                      handleSubmitQ1();
+                    }
+                  }}
+                  placeholder="Inscribe the person you want to become (e.g. A relentless software builder who ships clean architectures and leads with quiet discipline)..."
+                  className="w-full bg-transparent text-[#F7F5F0] placeholder-[#505D6E] outline-none font-sans text-sm sm:text-base leading-relaxed resize-none"
+                />
+                <div className="flex items-center justify-between pt-2 border-t border-[#141E2B] text-[10px] font-mono text-[#738090]">
+                  <span>FREE-TEXT INSCRIPTION</span>
+                  <span>PRESS CMD+ENTER OR CLICK CONTINUE</span>
                 </div>
-              )}
-            </div>
+              </div>
+
+              {/* Inspiration Chips */}
+              <div className="space-y-2">
+                <span className="block text-[10px] font-mono tracking-wider text-[#637282] uppercase">
+                  INSPIRATION ARCS (CLICK TO ADOPT):
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'A sovereign craftsman who ships enduring software monuments',
+                    'An unbreakable athlete with tireless physical stamina',
+                    'A disciplined sage seeking deep comprehension and intellectual mastery',
+                    'A dependable pillar of strength and presence for my community',
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        playTick();
+                        setQ1Become(preset);
+                      }}
+                      className="px-3 py-1.5 rounded border border-[#1A2533] hover:border-[#C5A059]/50 bg-[#090D14] text-[#8692A0] hover:text-[#EDE8DF] text-xs font-sans text-left transition-colors cursor-pointer"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4">
+                <button
+                  type="submit"
+                  disabled={!q1Become.trim()}
+                  className="px-8 py-3.5 bg-[#C5A059] disabled:opacity-40 hover:bg-[#D4B57A] text-[#06090E] text-xs font-sans tracking-[0.2em] uppercase font-bold transition-all rounded shadow-[0_2px_14px_rgba(197,160,89,0.3)] cursor-pointer flex items-center gap-2"
+                >
+                  <span>CONTINUE</span>
+                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              </div>
+            </form>
           </motion.div>
         )}
 
         {/* ═══════════════════════════════════════════════════════════
-            Q2: WHY DOES THIS MATTER?
+            QUESTION 02: WHY DOES THIS MATTER?
         ═══════════════════════════════════════════════════════════ */}
         {stage === 'Q2' && (
           <motion.div
@@ -763,10 +654,9 @@ export default function OnboardingPage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
-            className="w-full"
+            transition={{ duration: 0.3 }}
+            className="w-full max-w-2xl mx-auto"
           >
-            {/* Act Caption */}
             <div className="flex items-center justify-between border-b border-[#182332] pb-4 mb-8">
               <div className="flex items-center gap-3">
                 <button
@@ -781,95 +671,85 @@ export default function OnboardingPage() {
                 </button>
                 <span className="text-[#324050]">|</span>
                 <span className="font-mono text-[11px] tracking-[0.28em] text-[#C5A059] uppercase font-semibold">
-                  ACT II · THE ANCHOR
+                  QUESTION 02
                 </span>
               </div>
               <span className="font-mono text-[10px] tracking-widest text-[#738090]">
-                CHAPTER 2 / 4
+                2 / 4
               </span>
             </div>
 
-            {/* Question Title */}
             <h2 className="font-display font-semibold text-3xl sm:text-5xl text-[#F7F5F0] tracking-tight uppercase mb-3">
-              Why does this matter?
+              WHY DOES THIS MATTER?
             </h2>
-            <p className="font-serif italic text-base sm:text-lg text-[#9CA3AF] mb-8 max-w-xl">
-              Identity requires a reason. Why must you transform?
+            <p className="font-serif italic text-base sm:text-lg text-[#9CA3AF] mb-8">
+              &ldquo;What changes if you become that person?&rdquo;
             </p>
 
-            {/* Presets Grid */}
-            <div className="space-y-3 mb-6">
-              {PURPOSES.map((item, idx) => {
-                const isSelected = selectedPurpose === item.statement && !isCustomPurposeOpen;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleSelectPurpose(item.statement)}
-                    className={`w-full text-left p-5 rounded-lg border transition-all cursor-pointer group flex items-start gap-4 ${
-                      isSelected
-                        ? 'border-[#C5A059] bg-[#0E1520] ring-1 ring-[#C5A059]/40 shadow-[0_4px_24px_rgba(197,160,89,0.15)]'
-                        : 'border-[#1C2736] bg-[#0A0F16] hover:border-[#384A62] hover:bg-[#0E141E]'
-                    }`}
-                  >
-                    <span className="font-mono text-[10px] text-[#C5A059] tracking-widest mt-1">
-                      0{idx + 1}
-                    </span>
-                    <p className="font-serif text-base sm:text-lg text-[#EDE8DF] group-hover:text-[#F7F5F0] leading-snug flex-1">
-                      &ldquo;{item.statement}&rdquo;
-                    </p>
-                    <span className="shrink-0 text-xs font-mono text-[#738090] group-hover:text-[#C5A059] mt-1">
-                      &rarr;
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Custom Reason Toggle */}
-            <div className="border border-[#1C2736] rounded-lg bg-[#0A0F16] overflow-hidden">
-              <button
-                type="button"
-                onClick={() => {
-                  playTick();
-                  setIsCustomPurposeOpen(!isCustomPurposeOpen);
-                }}
-                className="w-full px-5 py-3.5 flex items-center justify-between text-left text-xs font-mono tracking-wider uppercase text-[#9CA3AF] hover:text-[#F7F5F0] hover:bg-[#0E141E] transition-colors cursor-pointer"
-              >
-                <span>Or articulate your own real reason...</span>
-                <span className="text-[#C5A059] text-sm">{isCustomPurposeOpen ? '−' : '+'}</span>
-              </button>
-
-              {isCustomPurposeOpen && (
-                <div className="p-5 border-t border-[#182332] bg-[#070B10]">
-                  <label className="block text-[10px] font-mono tracking-widest text-[#738090] uppercase mb-2">
-                    YOUR UNFILTERED REASON
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={customPurpose}
-                    onChange={(e) => setCustomPurpose(e.target.value)}
-                    placeholder="Write what drives your transformation..."
-                    className="w-full bg-[#0A0F16] border border-[#233144] focus:border-[#C5A059] p-4 rounded text-sm text-[#F7F5F0] placeholder-[#505D6E] outline-none font-sans mb-3"
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      disabled={!customPurpose.trim()}
-                      onClick={handleCustomPurposeSubmit}
-                      className="px-6 py-3 bg-[#C5A059] disabled:opacity-40 hover:bg-[#D4B57A] text-[#06090E] text-xs font-sans tracking-widest uppercase font-bold transition-all rounded cursor-pointer"
-                    >
-                      DROP ANCHOR &rarr;
-                    </button>
-                  </div>
+            <form onSubmit={handleSubmitQ2} className="space-y-6">
+              <div className="relative rounded-lg border border-[#233144] focus-within:border-[#C5A059] bg-[#0A0F16] p-4 transition-all focus-within:shadow-[0_0_25px_rgba(197,160,89,0.15)]">
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={q2Why}
+                  onChange={(e) => setQ2Why(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                      handleSubmitQ2();
+                    }
+                  }}
+                  placeholder="Inscribe why this matters to you (e.g. If I don't master discipline now, time will slip away and my potential will remain an unbuilt blueprint)..."
+                  className="w-full bg-transparent text-[#F7F5F0] placeholder-[#505D6E] outline-none font-sans text-sm sm:text-base leading-relaxed resize-none"
+                />
+                <div className="flex items-center justify-between pt-2 border-t border-[#141E2B] text-[10px] font-mono text-[#738090]">
+                  <span>CORE ANCHOR</span>
+                  <span>PRESS CMD+ENTER OR CLICK CONTINUE</span>
                 </div>
-              )}
-            </div>
+              </div>
+
+              {/* Inspiration Chips */}
+              <div className="space-y-2">
+                <span className="block text-[10px] font-mono tracking-wider text-[#637282] uppercase">
+                  ANCHOR PRESETS:
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'To conquer my own inertia and build compounding discipline before time runs out',
+                    'To build enduring monuments of craft and ship work that outlasts me',
+                    'To become a pillar of undeniable reliability for the people I care about',
+                    'To reclaim my attention from hollow distractions and achieve sovereignty over my mind',
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        playTick();
+                        setQ2Why(preset);
+                      }}
+                      className="px-3 py-1.5 rounded border border-[#1A2533] hover:border-[#C5A059]/50 bg-[#090D14] text-[#8692A0] hover:text-[#EDE8DF] text-xs font-sans text-left transition-colors cursor-pointer"
+                    >
+                      &ldquo;{preset}&rdquo;
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4">
+                <button
+                  type="submit"
+                  disabled={!q2Why.trim()}
+                  className="px-8 py-3.5 bg-[#C5A059] disabled:opacity-40 hover:bg-[#D4B57A] text-[#06090E] text-xs font-sans tracking-[0.2em] uppercase font-bold transition-all rounded shadow-[0_2px_14px_rgba(197,160,89,0.3)] cursor-pointer flex items-center gap-2"
+                >
+                  <span>CONTINUE</span>
+                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              </div>
+            </form>
           </motion.div>
         )}
 
         {/* ═══════════════════════════════════════════════════════════
-            Q3: HOW WILL YOU GET THERE?
+            QUESTION 03: HOW WILL YOU GET THERE?
         ═══════════════════════════════════════════════════════════ */}
         {stage === 'Q3' && (
           <motion.div
@@ -877,10 +757,9 @@ export default function OnboardingPage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
-            className="w-full"
+            transition={{ duration: 0.3 }}
+            className="w-full max-w-2xl mx-auto"
           >
-            {/* Act Caption */}
             <div className="flex items-center justify-between border-b border-[#182332] pb-4 mb-8">
               <div className="flex items-center gap-3">
                 <button
@@ -895,91 +774,85 @@ export default function OnboardingPage() {
                 </button>
                 <span className="text-[#324050]">|</span>
                 <span className="font-mono text-[11px] tracking-[0.28em] text-[#C5A059] uppercase font-semibold">
-                  ACT III · THE DISCIPLINES
+                  QUESTION 03
                 </span>
               </div>
               <span className="font-mono text-[10px] tracking-widest text-[#738090]">
-                CHAPTER 3 / 4
+                3 / 4
               </span>
             </div>
 
-            {/* Question Title */}
             <h2 className="font-display font-semibold text-3xl sm:text-5xl text-[#F7F5F0] tracking-tight uppercase mb-3">
-              How will you get there?
+              HOW WILL YOU GET THERE?
             </h2>
-            <p className="font-serif italic text-base sm:text-lg text-[#9CA3AF] mb-8 max-w-xl">
-              Select the disciplines that will forge your new baseline.
+            <p className="font-serif italic text-base sm:text-lg text-[#9CA3AF] mb-8">
+              &ldquo;Think about the habits, skills, projects, people, or challenges that will move you forward.&rdquo;
             </p>
 
-            {/* Multi-Archetype Disciplines Grid */}
-            <div className="space-y-3 mb-8">
-              {DISCIPLINES.map((d) => {
-                const isSelected = selectedDisciplines.includes(d.id);
-                return (
-                  <div
-                    key={d.id}
-                    onClick={() => toggleDiscipline(d.id)}
-                    className={`p-4 rounded-lg border flex items-center justify-between gap-4 transition-all cursor-pointer select-none ${
-                      isSelected
-                        ? 'border-[#C5A059] bg-[#0E1520] ring-1 ring-[#C5A059]/40 shadow-[0_4px_24px_rgba(197,160,89,0.15)]'
-                        : 'border-[#1C2736] bg-[#0A0F16] hover:border-[#384A62] hover:bg-[#0E141E]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-4">
-                      {/* Checkbox Icon */}
-                      <div
-                        className={`w-6 h-6 rounded border flex items-center justify-center transition-colors shrink-0 ${
-                          isSelected
-                            ? 'bg-[#C5A059] border-[#C5A059] text-[#06090E]'
-                            : 'border-[#2D3D52] bg-[#0A0F16]'
-                        }`}
-                      >
-                        {isSelected && <Check className="w-4 h-4 stroke-[3]" />}
-                      </div>
+            <form onSubmit={handleSubmitQ3} className="space-y-6">
+              <div className="relative rounded-lg border border-[#233144] focus-within:border-[#C5A059] bg-[#0A0F16] p-4 transition-all focus-within:shadow-[0_0_25px_rgba(197,160,89,0.15)]">
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={q3How}
+                  onChange={(e) => setQ3How(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                      handleSubmitQ3();
+                    }
+                  }}
+                  placeholder="Inscribe the habits and disciplines (e.g. 45-minute unbroken coding blocks, running 5k three times a week, reading dense technical books, direct communication)..."
+                  className="w-full bg-transparent text-[#F7F5F0] placeholder-[#505D6E] outline-none font-sans text-sm sm:text-base leading-relaxed resize-none"
+                />
+                <div className="flex items-center justify-between pt-2 border-t border-[#141E2B] text-[10px] font-mono text-[#738090]">
+                  <span>TACTICAL BLUEPRINT</span>
+                  <span>PRESS CMD+ENTER OR CLICK CONTINUE</span>
+                </div>
+              </div>
 
-                      <div>
-                        <div className="flex items-center gap-2.5">
-                          <h4 className="font-display font-semibold text-base sm:text-lg text-[#F7F5F0] uppercase tracking-wide">
-                            {d.title}
-                          </h4>
-                          <span className="font-mono text-[9px] px-2 py-0.5 rounded border border-[#233144] bg-[#0A0F16] text-[#C5A059] uppercase">
-                            {d.domain}
-                          </span>
-                        </div>
-                        <p className="font-sans text-xs text-[#8A96A6] font-light mt-0.5">
-                          {d.description}
-                        </p>
-                      </div>
-                    </div>
+              {/* Inspiration Chips */}
+              <div className="space-y-2">
+                <span className="block text-[10px] font-mono tracking-wider text-[#637282] uppercase">
+                  DISCIPLINARY INSPIRATIONS:
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'Unbroken deep work sessions dedicated to shipping production software',
+                    'Running 3 to 5 kilometers and heavy progressive compound lifts',
+                    'Reading 20 pages of foundational non-fiction with no phone nearby',
+                    'Authentic phone calls and undivided listening with allies',
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        playTick();
+                        setQ3How((prev) => (prev ? `${prev}, ${preset}` : preset));
+                      }}
+                      className="px-3 py-1.5 rounded border border-[#1A2533] hover:border-[#C5A059]/50 bg-[#090D14] text-[#8692A0] hover:text-[#EDE8DF] text-xs font-sans text-left transition-colors cursor-pointer"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                    <span className="font-mono text-[9px] text-[#738090] shrink-0 hidden sm:inline">
-                      [{d.attribute}]
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Confirm Disciplines Action */}
-            <div className="flex items-center justify-between pt-2">
-              <span className="font-mono text-xs text-[#738090]">
-                {selectedDisciplines.length} DISCIPLINES SELECTED
-              </span>
-              <button
-                type="button"
-                onClick={handleConfirmDisciplines}
-                disabled={selectedDisciplines.length === 0}
-                className="px-8 py-3.5 bg-[#C5A059] disabled:opacity-40 hover:bg-[#D4B57A] text-[#06090E] text-xs font-sans tracking-[0.2em] uppercase font-bold transition-all rounded shadow-[0_2px_14px_rgba(197,160,89,0.3)] cursor-pointer flex items-center gap-2"
-              >
-                <span>CONFIRM DISCIPLINES</span>
-                <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-              </button>
-            </div>
+              <div className="flex justify-end pt-4">
+                <button
+                  type="submit"
+                  disabled={!q3How.trim()}
+                  className="px-8 py-3.5 bg-[#C5A059] disabled:opacity-40 hover:bg-[#D4B57A] text-[#06090E] text-xs font-sans tracking-[0.2em] uppercase font-bold transition-all rounded shadow-[0_2px_14px_rgba(197,160,89,0.3)] cursor-pointer flex items-center gap-2"
+                >
+                  <span>CONTINUE</span>
+                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              </div>
+            </form>
           </motion.div>
         )}
 
         {/* ═══════════════════════════════════════════════════════════
-            Q4: HOW MUCH TIME CAN YOU GIVE EACH DAY?
+            QUESTION 04: HOW MUCH TIME CAN YOU GIVE EACH DAY?
         ═══════════════════════════════════════════════════════════ */}
         {stage === 'Q4' && (
           <motion.div
@@ -987,10 +860,9 @@ export default function OnboardingPage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.35 }}
+            transition={{ duration: 0.3 }}
             className="w-full"
           >
-            {/* Act Caption */}
             <div className="flex items-center justify-between border-b border-[#182332] pb-4 mb-8">
               <div className="flex items-center gap-3">
                 <button
@@ -1005,54 +877,53 @@ export default function OnboardingPage() {
                 </button>
                 <span className="text-[#324050]">|</span>
                 <span className="font-mono text-[11px] tracking-[0.28em] text-[#C5A059] uppercase font-semibold">
-                  ACT IV · THE CADENCE
+                  QUESTION 04
                 </span>
               </div>
               <span className="font-mono text-[10px] tracking-widest text-[#738090]">
-                CHAPTER 4 / 4
+                4 / 4
               </span>
             </div>
 
-            {/* Question Title */}
             <h2 className="font-display font-semibold text-3xl sm:text-5xl text-[#F7F5F0] tracking-tight uppercase mb-3">
-              How much time can you give each day?
+              HOW MUCH TIME CAN YOU GIVE EACH DAY?
             </h2>
-            <p className="font-serif italic text-base sm:text-lg text-[#9CA3AF] mb-8 max-w-xl">
-              Real progress is built on daily recurrence, not occasional intensity.
+            <p className="font-serif italic text-base sm:text-lg text-[#9CA3AF] mb-8">
+              &ldquo;Consistency matters more than ambition.&rdquo;
             </p>
 
-            {/* Time Commitment Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              {CADENCES.map((c) => {
-                const isSelected = selectedCadence === c.value;
+            {/* Exact Options Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+              {CADENCE_OPTIONS.map((c) => {
+                const isSelected = q4Time === c.value;
                 return (
                   <button
                     key={c.value}
                     type="button"
-                    onClick={() => handleSelectCadence(c.value)}
-                    className={`p-6 rounded-lg border text-center transition-all cursor-pointer group flex flex-col justify-between h-48 ${
+                    onClick={() => handleSelectQ4(c.value)}
+                    className={`p-6 rounded-lg border text-left transition-all cursor-pointer group flex flex-col justify-between h-44 ${
                       isSelected
                         ? 'border-[#C5A059] bg-[#C5A059]/10 ring-1 ring-[#C5A059]/50 shadow-[0_4px_30px_rgba(197,160,89,0.2)]'
                         : 'border-[#1C2736] bg-[#0A0F16] hover:border-[#384A62] hover:bg-[#0E141E]'
                     }`}
                   >
                     <div>
-                      <span className="font-mono text-[9px] tracking-[0.25em] text-[#C5A059] uppercase font-semibold block mb-2">
-                        {c.tag}
-                      </span>
-                      <span className="block font-display text-4xl sm:text-5xl font-semibold text-[#F7F5F0] group-hover:text-[#C5A059] transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-mono text-[9px] tracking-[0.25em] text-[#C5A059] uppercase font-semibold">
+                          {c.tag}
+                        </span>
+                        <span className="font-mono text-[10px] text-[#738090] group-hover:text-[#C5A059]">
+                          &rarr;
+                        </span>
+                      </div>
+                      <span className="block font-display text-4xl font-semibold text-[#F7F5F0] group-hover:text-[#C5A059] transition-colors">
                         {c.value}
                       </span>
                     </div>
 
-                    <p className="font-sans text-[11px] text-[#8A96A6] font-light mt-2">
+                    <p className="font-sans text-xs text-[#8A96A6] font-light mt-2 line-clamp-2">
                       {c.desc}
                     </p>
-
-                    <div className="pt-2 border-t border-[#182332] flex items-center justify-center gap-1 text-[10px] font-mono text-[#738090] group-hover:text-[#EDE8DF]">
-                      <span>SELECT CADENCE</span>
-                      <span>&rarr;</span>
-                    </div>
                   </button>
                 );
               })}
@@ -1061,21 +932,24 @@ export default function OnboardingPage() {
         )}
 
         {/* ═══════════════════════════════════════════════════════════
-            CLIMAX STAGE A: UNDERSTANDING YOUR ARC...
+            SYNTHESIS: UNDERSTANDING YOUR ARC...
         ═══════════════════════════════════════════════════════════ */}
         {stage === 'SYNTHESIS' && (
           <motion.div
             key="synthesis"
-            initial={{ opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.05 }}
-            transition={{ duration: 0.4 }}
+            exit={{ opacity: 0, scale: 1.04 }}
+            transition={{ duration: 0.35 }}
             className="text-center max-w-xl mx-auto py-12"
           >
-            {/* Animated Compass / Radar Ring */}
+            {/* Animated Radar Compass */}
             <div className="relative w-28 h-28 mx-auto mb-8 flex items-center justify-center">
               <div className="absolute inset-0 rounded-full border border-[#C5A059]/30 animate-ping opacity-30" />
-              <div className="absolute inset-2 rounded-full border border-[#C5A059]/40 animate-spin" style={{ animationDuration: '6s' }} />
+              <div
+                className="absolute inset-2 rounded-full border border-[#C5A059]/40 animate-spin"
+                style={{ animationDuration: '5s' }}
+              />
               <div className="w-16 h-16 rounded-full bg-[#0C121C] border border-[#C5A059] flex items-center justify-center shadow-[0_0_30px_rgba(197,160,89,0.25)]">
                 <Compass className="w-8 h-8 text-[#C5A059] animate-pulse" />
               </div>
@@ -1088,143 +962,189 @@ export default function OnboardingPage() {
               UNDERSTANDING YOUR ARC...
             </h2>
 
-            {/* Progressive Diagnostic Monologue */}
-            <div className="font-mono text-xs text-[#8A96A6] space-y-2 max-w-sm mx-auto">
+            {/* Progressive Narrative Diagnostics */}
+            <div className="font-mono text-xs text-[#8A96A6] space-y-2.5 max-w-sm mx-auto">
               <div className="flex items-center justify-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#C5A059]" />
-                <span>INSCRIBING ARCHETYPE: {resolvedArchetype.title}</span>
+                <span>ANALYZING NARRATIVE INTENT...</span>
               </div>
               {synthesisStep >= 1 && (
                 <div className="flex items-center justify-center gap-2 animate-in fade-in duration-300">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#C5A059]" />
-                  <span>CALCULATING ATTRIBUTE MATRIX...</span>
+                  <span>CALCULATING SOVEREIGN PATH MATRIX...</span>
                 </div>
               )}
               {synthesisStep >= 2 && (
                 <div className="flex items-center justify-center gap-2 animate-in fade-in duration-300">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#C5A059]" />
-                  <span>FORGING STARTER QUEST TRINITY...</span>
+                  <span>FORGING BESPOKE STARTER QUESTS...</span>
                 </div>
               )}
             </div>
+
+            {/* Error & Retry Handling (Preserves all answers) */}
+            {synthesisError && (
+              <div className="mt-8 p-4 rounded-lg bg-[#8F1D1D]/20 border border-[#8F1D1D]/50 max-w-md mx-auto">
+                <p className="font-sans text-xs text-[#FCA5A5] mb-3">
+                  {synthesisError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => runAiSynthesis()}
+                  className="px-5 py-2.5 bg-[#C5A059] hover:bg-[#D4B57A] text-[#06090E] text-xs font-mono font-bold uppercase rounded cursor-pointer inline-flex items-center gap-2"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>ATTEMPT RE-SYNTHESIS</span>
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
 
         {/* ═══════════════════════════════════════════════════════════
-            CLIMAX STAGE B: YOUR STORY STARTS HERE.
+            REVEAL: YOUR ARC REVEALED
         ═══════════════════════════════════════════════════════════ */}
-        {stage === 'CLIMAX' && (
+        {stage === 'REVEAL' && profile && (
           <motion.div
-            key="climax"
+            key="reveal"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
             className="w-full space-y-10"
           >
-            {/* Climax Splash Header */}
+            {/* Climax Narrative Header */}
             <div className="text-center max-w-2xl mx-auto">
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#C5A059]/40 bg-[#0C121B] mb-4">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#C5A059]" />
                 <span className="font-mono text-[10px] tracking-[0.26em] text-[#C5A059] uppercase font-semibold">
-                  CANON ESTABLISHED · THE WAYPOINT OPENS
+                  YOU HAVE A DIRECTION.
                 </span>
               </div>
-              <h2 className="font-display font-bold text-4xl sm:text-6xl text-[#F7F5F0] tracking-tight uppercase leading-tight mb-4">
-                YOUR STORY STARTS HERE.
+              <h2 className="font-display font-bold text-4xl sm:text-6xl text-[#F7F5F0] tracking-tight uppercase leading-tight mb-3">
+                YOUR ARC
               </h2>
               <p className="font-serif italic text-lg sm:text-xl text-[#C5A059] max-w-lg mx-auto">
                 &ldquo;Identity is not discovered. It is forged in the ledger every single day.&rdquo;
               </p>
             </div>
 
-            {/* Generated Arc Dossier */}
-            <div className="relative rounded-lg border border-[#C5A059]/50 bg-[#0A0F17] p-6 sm:p-8 shadow-[0_10px_50px_rgba(0,0,0,0.8)] overflow-hidden">
+            {/* Generated Arc Dossier Card */}
+            <div className="relative rounded-xl border border-[#C5A059]/50 bg-[#0A0F17] p-6 sm:p-8 shadow-[0_10px_50px_rgba(0,0,0,0.8)] overflow-hidden">
               {/* Corner crosshairs */}
               <div className="absolute top-2 left-2 text-[#C5A059]/40 font-mono text-xs">┌</div>
               <div className="absolute top-2 right-2 text-[#C5A059]/40 font-mono text-xs">┐</div>
               <div className="absolute bottom-2 left-2 text-[#C5A059]/40 font-mono text-xs">└</div>
               <div className="absolute bottom-2 right-2 text-[#C5A059]/40 font-mono text-xs">┘</div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                {/* Identity & Cadence */}
-                <div className="md:col-span-2">
-                  <div className="flex items-center gap-2 text-[10px] font-mono tracking-widest text-[#C5A059] uppercase mb-1">
-                    <span>GENERATED ARC PROFILE</span>
-                    <span>·</span>
-                    <span>CADENCE: {selectedCadence} / DAY</span>
-                  </div>
-                  <h3 className="font-display font-bold text-2xl sm:text-3xl text-[#F7F5F0] uppercase tracking-wide mb-3">
-                    {resolvedArchetype.title}
+              <div className="space-y-6">
+                {/* 1. YOUR ARC (Generated Identity) */}
+                <div>
+                  <span className="font-mono text-[10px] tracking-[0.28em] text-[#C5A059] uppercase font-semibold block mb-1">
+                    BECOMING
+                  </span>
+                  <h3 className="font-display font-bold text-2xl sm:text-4xl text-[#F7F5F0] uppercase tracking-wide">
+                    {profile.identity}
                   </h3>
-
-                  {/* Monologue Caption Anchor */}
-                  <div className="border-l-2 border-[#C5A059] pl-4 py-1 bg-[#06090E]/60 rounded-r">
-                    <span className="block text-[9px] font-mono tracking-widest text-[#738090] uppercase mb-1">
-                      CORE ANCHOR
-                    </span>
-                    <p className="font-serif italic text-sm text-[#EDE8DF]">
-                      &ldquo;{selectedPurpose}&rdquo;
-                    </p>
-                  </div>
                 </div>
 
-                {/* Attribute Matrix Breakdown */}
-                <div className="border border-[#1E2938] rounded-lg p-4 bg-[#070B11] space-y-2.5">
-                  <span className="block text-[9px] font-mono tracking-widest text-[#C5A059] uppercase font-semibold mb-2">
-                    BASELINE ATTRIBUTES
+                {/* 2. WHY IT MATTERS */}
+                <div className="border-l-2 border-[#C5A059] pl-4 py-1.5 bg-[#06090E]/60 rounded-r">
+                  <span className="block text-[9px] font-mono tracking-widest text-[#738090] uppercase mb-1 font-semibold">
+                    WHY IT MATTERS
                   </span>
-                  {(Object.keys(computedAttributes) as ArcAttributeKey[]).map((key) => {
-                    const val = computedAttributes[key];
-                    return (
-                      <div key={key} className="space-y-1">
-                        <div className="flex items-center justify-between text-[10px] font-mono">
-                          <span className="text-[#A4B1C2] uppercase">{key}</span>
-                          <span className="text-[#EDE8DF] font-semibold">{val} PTS</span>
-                        </div>
-                        <div className="h-1 bg-[#141C27] rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-[#8F1D1D] via-[#C5A059] to-[#D4B57A] rounded-full"
-                            style={{ width: `${Math.min(100, (val / 100) * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                  <p className="font-serif italic text-sm sm:text-base text-[#EDE8DF] leading-relaxed">
+                    &ldquo;{profile.whyItMatters}&rdquo;
+                  </p>
+                </div>
+
+                {/* 3. YOUR DIRECTION */}
+                <div className="border-l-2 border-[#D04A26] pl-4 py-1.5 bg-[#06090E]/60 rounded-r">
+                  <span className="block text-[9px] font-mono tracking-widest text-[#D04A26] uppercase mb-1 font-semibold">
+                    YOUR DIRECTION
+                  </span>
+                  <p className="font-sans text-xs sm:text-sm text-[#CBD5E1] leading-relaxed">
+                    {profile.direction}
+                  </p>
+                </div>
+
+                {/* 4. PATHS & COMMITMENT ROW */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-[#182332]">
+                  <div>
+                    <span className="block text-[9px] font-mono tracking-widest text-[#738090] uppercase mb-1">
+                      YOUR PATH
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded bg-[#C5A059]/15 border border-[#C5A059]/50 text-[#C5A059] font-mono text-xs uppercase font-bold">
+                        {profile.primaryPath} (PRIMARY)
+                      </span>
+                      {profile.secondaryPaths.map((sec) => (
+                        <span
+                          key={sec}
+                          className="px-2 py-0.5 rounded bg-[#131B26] border border-[#233144] text-[#8A96A6] font-mono text-[10px] uppercase"
+                        >
+                          {sec}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="block text-[9px] font-mono tracking-widest text-[#738090] uppercase mb-1">
+                      YOUR COMMITMENT
+                    </span>
+                    <span className="font-display text-xl text-[#F7F5F0] font-semibold">
+                      {profile.commitment}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Generated 3 Starter Quests */}
+            {/* 5. YOUR FIRST MOVES (3-5 Bespoke Quests) */}
             <div>
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <span className="font-mono text-[10px] tracking-[0.24em] text-[#C5A059] uppercase font-semibold block">
-                    THE INITIATION TRINITY
+                    NOW WE KNOW WHERE TO BEGIN.
                   </span>
                   <h3 className="font-display font-semibold text-2xl text-[#F7F5F0] uppercase tracking-wide">
-                    Your 3 Starter Quests
+                    YOUR FIRST MOVES
                   </h3>
                 </div>
                 <span className="font-mono text-[10px] text-[#738090]">
-                  3 DIVERSE ARCHETYPES GENERATED
+                  {profile.firstQuests.length} BESPOKE ACTIONS FORGED
                 </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {starterQuests.map((q) => {
+                {profile.firstQuests.map((q, idx) => {
+                  const cfg = QUEST_ARCHETYPES[q.archetype] || QUEST_ARCHETYPES.FOCUS;
+                  const actionVerb =
+                    q.archetype === 'DISTANCE'
+                      ? 'RUN'
+                      : q.archetype === 'COUNT'
+                      ? 'READ'
+                      : q.archetype === 'BUILD'
+                      ? 'BUILD'
+                      : q.archetype === 'ACTION'
+                      ? 'ACT'
+                      : q.archetype === 'SKILL'
+                      ? 'TRAIN'
+                      : 'FOCUS';
+
                   return (
                     <div
-                      key={q.id}
-                      className="relative rounded-lg border border-[#1E2938] bg-[#0A0F16] hover:border-[#C5A059]/60 transition-all p-5 flex flex-col justify-between group overflow-hidden"
+                      key={q.id || idx}
+                      className="relative rounded-xl border border-[#1E2938] bg-[#0A0F16] hover:border-[#C5A059]/60 transition-all p-5 flex flex-col justify-between group overflow-hidden"
                     >
-                      {/* Top Badges */}
                       <div>
+                        {/* Archetype & Attribute Badges */}
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <span className="font-mono text-[9px] px-2 py-0.5 rounded border border-[#C5A059]/40 bg-[#C5A059]/10 text-[#C5A059] tracking-wider uppercase font-semibold">
-                            {q.type}
+                          <span className={`font-mono text-[9px] px-2 py-0.5 rounded border tracking-wider uppercase font-semibold ${cfg.badgeStyle}`}>
+                            {cfg.tag}
                           </span>
                           <span className="font-mono text-[9px] text-[#738090] uppercase">
-                            [{q.attr}]
+                            [{q.attribute}]
                           </span>
                         </div>
 
@@ -1232,26 +1152,27 @@ export default function OnboardingPage() {
                           {q.title}
                         </h4>
                         <p className="font-sans text-xs text-[#8A96A6] font-light leading-relaxed mb-4">
-                          {q.desc}
+                          {q.objective}
                         </p>
                       </div>
 
-                      {/* Reward & Target */}
-                      <div className="pt-3 border-t border-[#16212E]">
-                        <div className="text-[10px] font-mono text-[#C5A059] mb-3">
-                          {q.reward}
+                      <div className="pt-3 border-t border-[#16212E] space-y-2">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-[#C5A059]">
+                          <span>+{q.rewards.xp} XP · +{q.rewards.marks} MARKS</span>
+                          <span>{q.target}</span>
                         </div>
-                        {q.isPrimaryFocus ? (
+
+                        {idx === 0 ? (
                           <button
                             type="button"
-                            onClick={() => handleEnterArc(q.taskId)}
+                            onClick={() => handleFinalLaunch(q.id)}
                             className="w-full py-2.5 bg-[#C5A059] hover:bg-[#D4B57A] text-[#06090E] text-[10px] font-mono tracking-widest uppercase font-bold transition-all rounded cursor-pointer flex items-center justify-center gap-1.5"
                           >
-                            <span>LAUNCH FOCUS NOW</span>
+                            <span>LAUNCH {actionVerb} NOW</span>
                             <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
                           </button>
                         ) : (
-                          <div className="w-full py-2.5 bg-[#0D141F] border border-[#233144] text-[#8A96A6] text-[10px] font-mono tracking-widest uppercase text-center rounded">
+                          <div className="w-full py-2 bg-[#0D141F] border border-[#233144] text-[#8A96A6] text-[10px] font-mono tracking-widest uppercase text-center rounded">
                             READY IN LEDGER
                           </div>
                         )}
@@ -1262,18 +1183,28 @@ export default function OnboardingPage() {
               </div>
             </div>
 
-            {/* Primary Action: ENTER YOUR ARC → */}
-            <div className="pt-6 pb-12 text-center">
-              <button
-                type="button"
-                onClick={() => handleEnterArc()}
-                className="w-full max-w-md mx-auto py-5 bg-gradient-to-r from-[#C5A059] via-[#D8B26E] to-[#C5A059] hover:brightness-110 text-[#06090E] text-xs font-sans tracking-[0.28em] uppercase font-bold transition-all rounded shadow-[0_4px_35px_rgba(197,160,89,0.35)] cursor-pointer flex items-center justify-center gap-3"
-              >
-                <span>ENTER YOUR ARC</span>
-                <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-              </button>
-              <span className="font-mono text-[10px] tracking-widest text-[#738090] uppercase block mt-3">
-                Inscribes your baseline into the living chronicle &rarr; routes to dashboard
+            {/* ═══════════════════════════════════════════════════════════
+                FINAL MOMENT: YOUR ARC BEGINS NOW.
+            ═══════════════════════════════════════════════════════════ */}
+            <div className="pt-8 pb-12 text-center">
+              <span className="font-mono text-xs tracking-[0.32em] text-[#C5A059] uppercase block mb-3 font-semibold">
+                YOUR ARC BEGINS NOW.
+              </span>
+
+              <div className="relative inline-block group">
+                <div className="absolute -inset-1 rounded-lg bg-gradient-to-r from-[#C5A059]/40 via-[#8F1D1D]/40 to-[#C5A059]/40 opacity-70 blur group-hover:opacity-100 transition duration-300" />
+                <button
+                  type="button"
+                  disabled={isLaunching}
+                  onClick={() => handleFinalLaunch()}
+                  className="relative w-full max-w-md px-10 py-5 bg-[#C5A059] hover:bg-[#D4B57A] text-[#06090E] text-xs font-sans tracking-[0.28em] uppercase font-bold transition-all rounded shadow-[0_10px_40px_rgba(197,160,89,0.35)] cursor-pointer flex items-center justify-center gap-3 active:scale-98 disabled:opacity-50"
+                >
+                  <span>BEGIN YOUR JOURNEY &rarr;</span>
+                </button>
+              </div>
+
+              <span className="font-mono text-[10px] tracking-widest text-[#738090] uppercase block mt-4">
+                Inscribes your ledger &rarr; opens sovereign dashboard
               </span>
             </div>
           </motion.div>
@@ -1281,9 +1212,9 @@ export default function OnboardingPage() {
       </div>
 
       {/* ── Graphic Novel Footer Baseline ─────────────────────────── */}
-      <footer className="relative z-20 w-full max-w-6xl mx-auto px-6 py-4 flex items-center justify-between border-t border-[#182230]/60 text-[10px] font-mono tracking-widest text-[#505D6E] uppercase">
-        <span>THE ARC · PROTOCOL ARCHIVE 001</span>
-        <span>NO MOTIVATIONAL FLUFF · PURE CONCRETE ACTION</span>
+      <footer className="relative z-20 w-full max-w-5xl mx-auto px-6 py-4 flex items-center justify-between border-t border-[#182230]/60 text-[10px] font-mono tracking-widest text-[#505D6E] uppercase">
+        <span>THE ARC · NARRATIVE INITIATION PROTOCOL</span>
+        <span>SOVEREIGN LIFE RPG</span>
       </footer>
     </main>
   );

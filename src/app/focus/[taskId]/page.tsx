@@ -20,7 +20,9 @@ import {
   QUEST_ARCHETYPES,
   DEFAULT_STARTER_QUESTS,
   validateQuestCompletion,
+  inferQuestArchetype,
 } from '@/lib/game-engine';
+import ComicReactionEngine, { ComicReactionPayload } from '@/components/game/ComicReactionEngine';
 
 interface SkillSet {
   id: string;
@@ -57,6 +59,8 @@ export default function FocusQuestPage({
     inferredArchetype = paramArchetype;
   } else if (starter) {
     inferredArchetype = starter.archetype;
+  } else if (paramTitle) {
+    inferredArchetype = inferQuestArchetype(paramTitle);
   } else if (taskId.includes('run') || taskId.includes('dist') || taskId === 'quest-002' || taskId === 'quest-055') {
     inferredArchetype = 'DISTANCE';
   } else if (taskId.includes('read') || taskId.includes('count') || taskId === 'quest-008') {
@@ -67,6 +71,8 @@ export default function FocusQuestPage({
     inferredArchetype = 'ACTION';
   } else if (taskId.includes('lift') || taskId.includes('workout') || taskId === 'quest-033') {
     inferredArchetype = 'SKILL';
+  } else {
+    inferredArchetype = inferQuestArchetype(taskId, 'FOCUS');
   }
 
   const archetype = inferredArchetype;
@@ -77,6 +83,17 @@ export default function FocusQuestPage({
     paramAttr ||
     starter?.attribute ||
     (archetype === 'DISTANCE' ? 'BODY' : archetype === 'COUNT' ? 'MIND' : archetype === 'ACTION' ? 'PEOPLE' : 'CRAFT');
+
+  // Parse numbers from title if paramTargetValue is missing
+  const titleDist = (() => {
+    const m = (paramTitle || starter?.title || '').match(/([\d.]+)\s*(KM|K|MILES?|M\b)/i);
+    return m ? parseFloat(m[1]) : null;
+  })();
+
+  const titleCount = (() => {
+    const m = (paramTitle || starter?.title || '').match(/(\d+)\s*(PAGES?|P\b|REPS?|CHAPTERS?|WORDS?|ITEMS?)/i);
+    return m ? parseInt(m[1], 10) : null;
+  })();
 
   // Duration
   const durationParam =
@@ -103,10 +120,53 @@ export default function FocusQuestPage({
 
   const questCode = starter?.code || '014';
 
+  // Mission Directive 4 Questions Content
+  const paramObjective = searchParams.get('objective');
+  const paramWhy = searchParams.get('why');
+
+  const questObjective =
+    paramObjective ||
+    starter?.objective ||
+    (archetype === 'FOCUS'
+      ? `Sustain ${durationParam} minutes of unbroken cognitive immersion without distraction.`
+      : archetype === 'DISTANCE'
+      ? `Traverse ${(paramTargetValue || titleDist || starter?.targetValue || 3.0).toFixed(1)} KM of physical ground and record live pace.`
+      : archetype === 'COUNT'
+      ? `Advance ${paramTargetValue ? Math.round(paramTargetValue) : titleCount || starter?.targetValue || 20} ${paramUnit || starter?.unit || 'Pages'} into the ledger and record takeaways.`
+      : archetype === 'BUILD'
+      ? 'Ship all architectural checkpoints and record commit / artifact output link.'
+      : archetype === 'ACTION'
+      ? 'Confront this real-world interaction, record sovereign reflection, and hold to confirm.'
+      : 'Log working sets, weights, and technical observations for this practice session.');
+
+  const questWhy =
+    paramWhy ||
+    starter?.whyItMatters ||
+    (archetype === 'FOCUS'
+      ? 'Unbroken stillness compounds. Cognitive mastery requires undivided presence.'
+      : archetype === 'DISTANCE'
+      ? 'Physical aerobic endurance elevates nervous system resilience and mental stamina.'
+      : archetype === 'COUNT'
+      ? 'Tactile quantity progress defeats cognitive friction and restores deep attention.'
+      : archetype === 'BUILD'
+      ? 'Artifacts outlive intentions. Tangible shipments create undeniable reality in the world.'
+      : archetype === 'ACTION'
+      ? 'A sovereign life requires courageous friction in the physical and relational world.'
+      : 'Deliberate technical practice under progressive load creates lasting mastery.');
+
   // Session State
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isCompleted, setIsCompleted] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const [reactionPayload, setReactionPayload] = useState<ComicReactionPayload | null>(null);
+
+  // Trigger brief Graphic Novel QUEST ACCEPT flash (<700ms) on entering mission arena
+  useEffect(() => {
+    setReactionPayload({
+      type: 'QUEST_ACCEPT',
+      dialogue: 'THEN MOVE.',
+    });
+  }, []);
 
   // Archetype 1: FOCUS state
   const [secondsRemaining, setSecondsRemaining] = useState(targetDurationSec);
@@ -115,13 +175,13 @@ export default function FocusQuestPage({
   const [integrityMessage, setIntegrityMessage] = useState('');
 
   // Archetype 2: DISTANCE state
-  const targetDistance = paramTargetValue || starter?.targetValue || 3.0;
+  const targetDistance = paramTargetValue || titleDist || starter?.targetValue || 3.0;
   const [distanceValue, setDistanceValue] = useState(0.0);
   const [paceNotes, setPaceNotes] = useState('5:20 /km');
   const [terrain, setTerrain] = useState<'Road' | 'Trail' | 'Track' | 'Treadmill'>('Road');
 
   // Archetype 3: COUNT state
-  const targetCount = paramTargetValue ? Math.round(paramTargetValue) : starter?.targetValue || 20;
+  const targetCount = paramTargetValue ? Math.round(paramTargetValue) : titleCount || starter?.targetValue || 20;
   const unitLabel = paramUnit || starter?.unit || 'Pages';
   const [countValue, setCountValue] = useState(0);
   const [countNotes, setCountNotes] = useState('');
@@ -159,8 +219,22 @@ export default function FocusQuestPage({
   const marksReward = durationParam >= 45 ? 25 : durationParam >= 30 ? 15 : 10;
   const xpReward = durationParam >= 45 ? 60 : durationParam >= 30 ? 40 : 25;
 
-  // Initialize server focus session if applicable
+  const whatCountsAsDone =
+    archetype === 'FOCUS'
+      ? `Complete full ${durationParam} minutes of unbroken focus.`
+      : archetype === 'DISTANCE'
+      ? `Traverse at least ${targetDistance.toFixed(1)} KM and log pace.`
+      : archetype === 'COUNT'
+      ? `Record at least ${targetCount} ${unitLabel} in the counter.`
+      : archetype === 'BUILD'
+      ? `Check off all ${checkpoints.length} milestones & provide artifact link.`
+      : archetype === 'ACTION'
+      ? 'Record authentic reflection and hold button for 2s to confirm.'
+      : `Complete all ${skillSets.length} working sets with technique notes.`;
+
+  // Initialize server focus session if applicable (ONLY FOR FOCUS)
   useEffect(() => {
+    if (archetype !== 'FOCUS') return;
     let active = true;
     async function initSession() {
       try {
@@ -181,18 +255,25 @@ export default function FocusQuestPage({
     return () => {
       active = false;
     };
-  }, [taskId]);
+  }, [taskId, archetype]);
 
   // Timer Tick & Server Heartbeats
   useEffect(() => {
     if (isCompleted) return;
 
-    // Increment overall elapsed time for all consoles
+    // Non-focus archetypes passively record elapsed duration without countdown timer
+    if (archetype !== 'FOCUS') {
+      const interval = setInterval(() => {
+        setElapsedSec((prev) => prev + 1);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+
+    // FOCUS mode: countdown timer with server heartbeats
     const interval = setInterval(() => {
       setElapsedSec((prev) => prev + 1);
 
-      // In FOCUS mode, tick down countdown
-      if (archetype === 'FOCUS' && isFocusRunning) {
+      if (isFocusRunning) {
         setSecondsRemaining((prev) => {
           if (prev <= 1) {
             clearInterval(interval);
@@ -375,19 +456,81 @@ export default function FocusQuestPage({
         skillOutput: skillNotes || `${skillSets.filter((s) => s.completed).length} sets completed`,
       };
 
+      let completeRes: Response | null = null;
+      let completeData: any = null;
+
       if (!taskId.startsWith('move-') && !taskId.startsWith('quest-') && !taskId.startsWith('custom-')) {
-        await fetch(`/api/tasks/${taskId}/complete`, {
+        completeRes = await fetch(`/api/tasks/${taskId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        completeData = await completeRes.json().catch(() => ({}));
+      } else {
+        // Persist synthetic or starter quest to database for immutable ledger record
+        try {
+          const dashRes = await fetch('/api/dashboard');
+          if (dashRes.ok) {
+            const dashData = await dashRes.json();
+            const attrMatch = (dashData.attributes || []).find((a: any) => {
+              const aName = (a.name || '').toUpperCase();
+              return aName.includes(rawAttr) || (rawAttr === 'BODY' && aName.includes('STRENGTH')) || (rawAttr === 'MIND' && aName.includes('INTELLECT'));
+            }) || dashData.attributes?.[0];
+
+            if (attrMatch) {
+              const createRes = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: taskTitle,
+                  attributeId: attrMatch.id,
+                }),
+              });
+              if (createRes.ok) {
+                const createdTask = await createRes.json();
+                completeRes = await fetch(`/api/tasks/${createdTask.id}/complete`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload),
+                });
+                completeData = await completeRes.json().catch(() => ({}));
+              }
+            }
+          }
+        } catch (persErr) {
+          console.warn('Could not persist quest to database', persErr);
+        }
       }
+
+      if (completeRes && !completeRes.ok) {
+        setIsCompleted(false);
+        setReactionPayload({
+          type: 'ACTION_REJECTED',
+          rejectionReason: completeData?.reason || completeData?.error || "THAT MOVE DOESN'T COUNT · UNVERIFIED ACTION · NO PROGRESSION AWARDED.",
+        });
+        return;
+      }
+
+      // Authoritative completion confirmed by server
+      setReactionPayload({
+        type: 'QUEST_COMPLETE',
+        questTitle: taskTitle,
+        xp: completeData?.xpAwarded || completeData?.earned || xpReward,
+        momentum: completeData?.momentumAwarded || momentumReward,
+        marks: completeData?.marksAwarded || marksReward,
+        attrKey: rawAttr,
+        attrPoints: completeData?.xpAwarded || xpReward,
+        oldLevel: completeData?.oldLevel,
+        newLevel: completeData?.newLevel,
+        milestone: completeData?.milestoneReached,
+        badge: completeData?.unlockedBadge,
+      });
 
       if (typeof window !== 'undefined') {
         window.dispatchEvent(
           new CustomEvent('arc-state-update', {
             detail: {
-              marksDelta: marksReward,
+              marksDelta: completeData?.marksAwarded || marksReward,
             },
           })
         );
@@ -450,6 +593,78 @@ export default function FocusQuestPage({
               <p className="font-sans text-xs text-[#8B97A6] font-light max-w-md mx-auto mt-2">
                 {archetypeConfig.executionPrompt}
               </p>
+            </div>
+
+            {/* ═════════════════════════════════════════════════════════
+                MISSION DIRECTIVE: THE 4 CORE RPG QUESTIONS
+                1. WHAT AM I DOING?
+                2. WHY AM I DOING IT?
+                3. WHAT COUNTS AS DONE?
+                4. WHAT DO I EARN?
+            ═════════════════════════════════════════════════════════ */}
+            <div className="text-left rounded-lg border border-[#1A2534] bg-[#090D13]/90 backdrop-blur-md p-5 sm:p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-[#141C26]">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#C5A059] animate-pulse" />
+                  <span className="font-mono text-[10px] tracking-[0.28em] text-[#C5A059] uppercase font-semibold">
+                    MISSION DIRECTIVE
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] text-[#8B97A6] tracking-wider uppercase">
+                  THE ARC · SOVEREIGN PROTOCOL
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+                {/* 1. WHAT AM I DOING? */}
+                <div className="p-3 rounded border border-[#141E2B] bg-[#0C121B]/60 space-y-1">
+                  <span className="block font-mono text-[9px] tracking-[0.22em] text-[#C5A059] uppercase font-semibold">
+                    01 · WHAT AM I DOING?
+                  </span>
+                  <h3 className="font-display text-sm font-semibold text-[#F2EEE6] uppercase tracking-wide">
+                    {taskTitle}
+                  </h3>
+                  <p className="font-sans text-[11px] text-[#8B97A6] font-light leading-relaxed">
+                    {questObjective}
+                  </p>
+                </div>
+
+                {/* 2. WHY AM I DOING IT? */}
+                <div className="p-3 rounded border border-[#141E2B] bg-[#0C121B]/60 space-y-1">
+                  <span className="block font-mono text-[9px] tracking-[0.22em] text-[#8B97A6] uppercase font-semibold">
+                    02 · WHY AM I DOING IT?
+                  </span>
+                  <p className="font-sans text-[11px] text-[#EDE8DF] font-light leading-relaxed pt-1">
+                    {questWhy}
+                  </p>
+                </div>
+
+                {/* 3. WHAT COUNTS AS DONE? */}
+                <div className="p-3 rounded border border-[#141E2B] bg-[#0C121B]/60 space-y-1">
+                  <span className="block font-mono text-[9px] tracking-[0.22em] text-[#34D399] uppercase font-semibold">
+                    03 · WHAT COUNTS AS DONE?
+                  </span>
+                  <p className="font-mono text-xs text-[#EDE8DF] font-medium pt-1">
+                    {whatCountsAsDone}
+                  </p>
+                </div>
+
+                {/* 4. WHAT DO I EARN? */}
+                <div className="p-3 rounded border border-[#141E2B] bg-[#0C121B]/60 space-y-1">
+                  <span className="block font-mono text-[9px] tracking-[0.22em] text-[#C5A059] uppercase font-semibold">
+                    04 · WHAT DO I EARN?
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2 font-mono text-xs pt-1">
+                    <span className="text-[#EDE8DF]">+{attributeReward} {rawAttr}</span>
+                    <span className="text-[#38485C]">·</span>
+                    <span className="text-[#C5A059]">+{momentumReward} MOM</span>
+                    <span className="text-[#38485C]">·</span>
+                    <span className="text-[#C5A059]">+{marksReward} MARKS</span>
+                    <span className="text-[#38485C]">·</span>
+                    <span className="text-[#EDE8DF]">+{xpReward} XP</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* ═════════════════════════════════════════════════════════
@@ -1042,16 +1257,30 @@ export default function FocusQuestPage({
               </div>
             </div>
 
-            <div className="pt-2">
-              <p className="font-display text-2xl text-[#EDE8DF] tracking-wide mb-6">
+            <div className="pt-2 space-y-3">
+              <p className="font-display text-2xl text-[#EDE8DF] tracking-wide mb-3">
                 You moved forward.
               </p>
               <button
                 type="button"
-                onClick={() => router.push('/quests')}
+                onClick={() => router.push('/quests?state=COMPLETED')}
                 className="inline-flex items-center justify-center gap-2.5 w-full py-4 bg-[#C5A059] hover:bg-[#D4B57A] text-[#080C12] text-xs font-sans tracking-[0.22em] uppercase font-semibold transition-all rounded shadow-[0_4px_25px_rgba(197,160,89,0.35)] cursor-pointer"
               >
-                <span>Return to Mission Board &rarr;</span>
+                <span>View in Sovereign Ledger &rarr;</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push('/quests')}
+                className="w-full py-3 border border-[#1E2938] hover:border-[#38485C] text-[#8B97A6] hover:text-[#EDE8DF] text-xs font-mono tracking-widest uppercase transition-colors rounded cursor-pointer"
+              >
+                Return to Mission Board
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard')}
+                className="w-full py-2.5 text-[#6B7784] hover:text-[#EDE8DF] text-[11px] font-mono tracking-wider uppercase transition-colors cursor-pointer"
+              >
+                Go to Dashboard
               </button>
             </div>
           </div>
@@ -1120,6 +1349,14 @@ export default function FocusQuestPage({
           </div>
         </div>
       )}
+
+      {/* ═════════════════════════════════════════════════════════
+          LIVING GRAPHIC NOVEL COMIC REACTION ENGINE
+      ═════════════════════════════════════════════════════════ */}
+      <ComicReactionEngine
+        payload={reactionPayload}
+        onClose={() => setReactionPayload(null)}
+      />
     </div>
   );
 }

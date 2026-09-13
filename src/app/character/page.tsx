@@ -55,6 +55,10 @@ export default function CharacterPage() {
   const [data, setData] = useState<any>(null);
   const [primaryPathId, setPrimaryPathId] = useState('artisan');
 
+  const [identityStatement, setIdentityStatement] = useState('SOVEREIGN BUILDER');
+  const [coreWhy, setCoreWhy] = useState('Building with intention and discipline.');
+  const [direction, setDirection] = useState('Through persistent craft and daily sovereign action.');
+
   // Live synchronizable state
   const [liveMarks, setLiveMarks] = useState(184);
   const [liveStreak, setLiveStreak] = useState(7);
@@ -67,6 +71,16 @@ export default function CharacterPage() {
       const saved = localStorage.getItem('arc_primary_path');
       if (saved && ['scholar', 'warrior', 'artisan', 'social'].includes(saved)) {
         setPrimaryPathId(saved);
+      }
+
+      const arcPlan = localStorage.getItem('arc_plan');
+      if (arcPlan) {
+        try {
+          const plan = JSON.parse(arcPlan);
+          if (plan.identity) setIdentityStatement(plan.identity);
+          if (plan.whyItMatters) setCoreWhy(plan.whyItMatters);
+          if (plan.direction) setDirection(plan.direction);
+        } catch {}
       }
     }
   }, []);
@@ -216,7 +230,7 @@ export default function CharacterPage() {
         attribute: 'CRAFT',
         deltaXp: 50,
         marks: 25,
-        annotation: 'Unbroken concentration. 45-minute sovereign session sealed.',
+        annotation: 'Server-verified completion',
       },
       {
         id: 'hist-2',
@@ -225,7 +239,7 @@ export default function CharacterPage() {
         attribute: 'BODY',
         deltaXp: 25,
         marks: 15,
-        annotation: 'Physical friction overcome prior to dawn. Recurrence maintained.',
+        annotation: 'Server-verified completion',
       },
       {
         id: 'hist-3',
@@ -234,28 +248,28 @@ export default function CharacterPage() {
         attribute: 'MIND',
         deltaXp: 35,
         marks: 20,
-        annotation: 'Deep comprehension of underlying entropy engine principles.',
-      },
-      {
-        id: 'hist-4',
-        date: '4d ago',
-        title: 'Clear Peer Alignment & Direct Feedback',
-        attribute: 'PEOPLE',
-        deltaXp: 20,
-        marks: 10,
-        annotation: 'Constructive dialogue conducted with radical candor and respect.',
-      },
-      {
-        id: 'hist-5',
-        date: '6d ago',
-        title: 'Threshold Breaker: The First Sovereign Step',
-        attribute: 'CRAFT',
-        deltaXp: 40,
-        marks: 30,
-        annotation: 'Foundational baseline milestone locked into the immutable chronicle.',
+        annotation: 'Server-verified completion',
       },
     ];
   }, [data]);
+
+  if (loading) {
+    return (
+      <AppShell>
+        <div className="max-w-[1140px] mx-auto px-6 sm:px-8 lg:px-12 pt-8 pb-24">
+          <div className="animate-pulse space-y-6">
+            <div className="h-64 bg-[#0C121B] rounded-lg border border-[#1E2938]" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-32 bg-[#0C121B] rounded-lg border border-[#1E2938]" />
+              ))}
+            </div>
+            <div className="h-48 bg-[#0C121B] rounded-lg border border-[#1E2938]" />
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell
@@ -310,6 +324,15 @@ export default function CharacterPage() {
               <p className="font-sans text-xs sm:text-sm text-[#A6B2C0] font-light max-w-xl mt-1 leading-relaxed">
                 You are not an avatar. Your character is forged through the verified recurrence of real-world discipline.
               </p>
+
+              <div className="mt-4">
+                <p className="font-display text-lg sm:text-xl text-[#EDE8DF] tracking-wide uppercase font-medium">
+                  {identityStatement}
+                </p>
+                <p className="font-sans text-xs text-[#8B97A6] mt-1 font-light leading-relaxed max-w-lg">
+                  {coreWhy}
+                </p>
+              </div>
             </div>
 
             {/* Quick RPG Badges: Level, Momentum, Marks, Streak */}

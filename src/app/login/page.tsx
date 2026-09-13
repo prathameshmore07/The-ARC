@@ -48,6 +48,16 @@ export default function LoginPage() {
     handleLogin(email.trim(), password);
   };
 
+  return (
+    <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-[var(--bg-surface-1)] p-8 sm:p-10 rounded-2xl shadow-rpg-md border border-[var(--border-subtle)] text-[var(--text-body)]">
+        <h1 className="font-serif font-bold text-3xl text-[var(--text-headline)] mb-2">
+          Welcome back.
+        </h1>
+        <p className="text-sm text-[var(--text-dim)] mb-6">
+          Inspect your chronicle and confront whatever has grown in your absence.
+        </p>
+
         {error && (
           <div className="mb-6 p-3 rounded-lg bg-[var(--accent-brick)]/20 border border-[var(--accent-brick)]/40 text-red-300 text-xs font-medium">
             {error}

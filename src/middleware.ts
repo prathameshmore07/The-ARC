@@ -35,9 +35,9 @@ export async function middleware(request: NextRequest) {
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    hasUser = !!user;
+    hasUser = !!user || !!request.cookies.get('ee_demo_session');
   } catch {
-    hasUser = false;
+    hasUser = !!request.cookies.get('ee_demo_session');
   }
 
   // Protect application routes — redirect to /login if not authenticated via Supabase

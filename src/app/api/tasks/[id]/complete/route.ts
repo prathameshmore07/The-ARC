@@ -8,6 +8,8 @@ import {
   computeLevel,
   validateFocusSession,
   computeReclaimedXp,
+  inferQuestArchetype,
+  type QuestArchetype,
 } from '@/lib/game-engine';
 
 export async function POST(
@@ -22,22 +24,6 @@ export async function POST(
 
     const { id: taskId } = await params;
     const body = await request.json().catch(() => ({}));
-    const {
-      archetype = 'FOCUS',
-      focusSessionId,
-      elapsedDurationSec,
-      targetDurationSec,
-      durationMinutes,
-      distanceValue,
-      targetDistance,
-      countValue,
-      targetCount,
-      completedCheckpoints,
-      requiredCheckpoints,
-      confirmed,
-      skillOutput,
-      targetValue,
-    } = body;
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
@@ -53,8 +39,36 @@ export async function POST(
     }
 
     if (task.status === 'done') {
-      return NextResponse.json({ error: 'Task already completed' }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: 'ACTION_REJECTED',
+          reason: 'This quest has already been inscribed into the sovereign ledger. Double progression is prohibited.',
+          integrityFailed: true,
+        },
+        { status: 400 }
+      );
     }
+
+    // Resolve true archetype (never force a countdown timer on non-focus tasks)
+    const archetype: QuestArchetype = body.archetype && body.archetype !== 'FOCUS'
+      ? body.archetype
+      : inferQuestArchetype(task.title, body.archetype || 'ACTION');
+
+    const {
+      focusSessionId,
+      elapsedDurationSec,
+      targetDurationSec,
+      durationMinutes,
+      distanceValue,
+      targetDistance,
+      countValue,
+      targetCount,
+      completedCheckpoints,
+      requiredCheckpoints,
+      confirmed,
+      skillOutput,
+      targetValue,
+    } = body;
 
     // ── Server-Side Validation for Each Archetype ───────────────
     if (archetype === 'FOCUS') {
@@ -85,7 +99,8 @@ export async function POST(
           const remainingMin = Math.max(1, Math.ceil((targetSec - elapsed) / 60));
           return NextResponse.json(
             {
-              error: `${completedMin} MIN COMPLETED · ${remainingMin} MIN REMAINING · [ CONTINUE QUEST ]`,
+              error: 'ACTION_REJECTED',
+              reason: `${completedMin} MIN COMPLETED · ${remainingMin} MIN REMAINING · FOCUS INTEGRITY UNFULFILLED`,
               integrityFailed: true,
               completedMin,
               remainingMin,
@@ -96,7 +111,11 @@ export async function POST(
 
         if (elapsed === 0 && !focusSessionId) {
           return NextResponse.json(
-            { error: 'Focus quest requires active execution duration or verified session.' },
+            {
+              error: 'ACTION_REJECTED',
+              reason: 'Focus quest requires active execution duration or verified session.',
+              integrityFailed: true,
+            },
             { status: 400 }
           );
         }
@@ -107,7 +126,9 @@ export async function POST(
       if (typeof distanceValue !== 'number' || distanceValue < requiredDist) {
         return NextResponse.json(
           {
-            error: `Distance verification failed: ${distanceValue ?? 0} / ${requiredDist} KM completed.`,
+            error: 'ACTION_REJECTED',
+            reason: `Distance verification failed: ${distanceValue ?? 0} / ${requiredDist} KM completed.`,
+            integrityFailed: true,
           },
           { status: 400 }
         );
@@ -118,7 +139,9 @@ export async function POST(
       if (typeof countValue !== 'number' || countValue < requiredCnt) {
         return NextResponse.json(
           {
-            error: `Count verification failed: ${countValue ?? 0} / ${requiredCnt} completed.`,
+            error: 'ACTION_REJECTED',
+            reason: `Count verification failed: ${countValue ?? 0} / ${requiredCnt} completed.`,
+            integrityFailed: true,
           },
           { status: 400 }
         );
@@ -132,7 +155,9 @@ export async function POST(
       if (completedLen < requiredCP) {
         return NextResponse.json(
           {
-            error: `Build checkpoints incomplete: ${completedLen} / ${requiredCP} completed.`,
+            error: 'ACTION_REJECTED',
+            reason: `Build checkpoints incomplete: ${completedLen} / ${requiredCP} completed.`,
+            integrityFailed: true,
           },
           { status: 400 }
         );
@@ -141,7 +166,11 @@ export async function POST(
       // ACTION: confirmed === true
       if (confirmed !== true) {
         return NextResponse.json(
-          { error: 'Action confirmation required.' },
+          {
+            error: 'ACTION_REJECTED',
+            reason: 'Deliberate confirmation hold required for real-world action.',
+            integrityFailed: true,
+          },
           { status: 400 }
         );
       }
@@ -149,7 +178,11 @@ export async function POST(
       // SKILL: output provided
       if (typeof skillOutput !== 'string' || !skillOutput.trim()) {
         return NextResponse.json(
-          { error: 'Skill practice output log is required.' },
+          {
+            error: 'ACTION_REJECTED',
+            reason: 'Skill practice output log is required.',
+            integrityFailed: true,
+          },
           { status: 400 }
         );
       }
@@ -158,6 +191,12 @@ export async function POST(
     const now = new Date();
 
     const result = await prisma.$transaction(async (tx) => {
+      // Re-check task status inside transaction to prevent race conditions
+      const freshTask = await tx.task.findUnique({ where: { id: taskId } });
+      if (!freshTask || freshTask.status === 'done') {
+        throw new Error('ALREADY_COMPLETED');
+      }
+
       let focusVerified = false;
       let computedDurationSec: number | null = null;
 
@@ -361,6 +400,70 @@ export async function POST(
         data: { status: 'done' },
       });
 
+      // Check total completions for milestone & badge unlocks
+      const totalCompletions = await tx.completionLog.count({
+        where: { userId: user.id },
+      });
+
+      let milestoneReached: { title: string; category: string; description: string } | null = null;
+      let unlockedBadge: { name: string; type: string; image: string; description: string } | null = null;
+
+      if (totalCompletions === 1) {
+        milestoneReached = {
+          title: 'FIRST QUEST COMPLETED',
+          category: 'ORIGIN',
+          description: 'The first permanent mark upon your Sovereign Chronicle.',
+        };
+        unlockedBadge = {
+          name: 'CELESTIAL COMPASS',
+          type: 'insignia',
+          image: '/images/armory/badge_celestial_compass.jpg',
+          description: 'Awarded for taking your first verified sovereign action in THE ARC.',
+        };
+      } else if (totalCompletions === 10) {
+        milestoneReached = {
+          title: '10 QUESTS COMPLETE',
+          category: 'CADENCE',
+          description: 'The Arc strengthens. Momentum solidifies.',
+        };
+        unlockedBadge = {
+          name: 'THE BUILDER',
+          type: 'badge',
+          image: '/images/armory/badge_the_builder.jpg',
+          description: 'Forged through 10 verified sovereign completions.',
+        };
+      } else if (totalCompletions === 25) {
+        milestoneReached = {
+          title: '25 QUESTS FULFILLED',
+          category: 'MASTERY',
+          description: 'A quarter-century of sovereign real-world actions.',
+        };
+        unlockedBadge = {
+          name: 'THE SHIPPER',
+          type: 'badge',
+          image: '/images/armory/badge_the_shipper.jpg',
+          description: 'Proof of continuous delivery in the physical world.',
+        };
+      } else if (newStreak === 7) {
+        milestoneReached = {
+          title: '7-DAY STREAK',
+          category: 'MOMENTUM',
+          description: 'One full week of unbroken allegiance against entropy.',
+        };
+        unlockedBadge = {
+          name: 'AEGIS RESOLVE',
+          type: 'badge',
+          image: '/images/armory/badge_aegis_resolve.jpg',
+          description: 'Bestowed upon those who sustain 7 consecutive days of discipline.',
+        };
+      } else if (shadowDefeated) {
+        milestoneReached = {
+          title: 'SHADOW BANISHED',
+          category: 'VICTORY',
+          description: 'A parasitic entity was successfully confronted and banished.',
+        };
+      }
+
       // Transparent reconciliation payload
       return {
         task: updatedTask,
@@ -384,12 +487,24 @@ export async function POST(
         shadowInteraction,
         shadowDefeated,
         attributeName: task.attribute.name,
+        milestoneReached,
+        unlockedBadge,
       };
     });
 
     return NextResponse.json(result);
   } catch (error) {
     console.error('Complete task error:', error);
+    if (error instanceof Error && error.message === 'ALREADY_COMPLETED') {
+      return NextResponse.json(
+        {
+          error: 'ACTION_REJECTED',
+          reason: 'This quest was already completed by a concurrent request. No duplicate progression awarded.',
+          integrityFailed: true,
+        },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 }

@@ -20,15 +20,21 @@ export async function POST(request: Request) {
     }
 
     await prisma.$transaction(async (tx) => {
-      if (userCosmetic.item.type === 'theme') {
-        const ownedThemes = await tx.userCosmetic.findMany({
-          where: { userId: user.id, item: { type: 'theme' } }
+      const type = userCosmetic.item.type;
+      
+      if (type === 'theme' || type === 'title' || type === 'badge' || type === 'insignia') {
+        const typeQuery = (type === 'badge' || type === 'insignia') ? { in: ['badge', 'insignia'] } : type;
+        const ownedItemsOfSlot = await tx.userCosmetic.findMany({
+          where: { userId: user.id, item: { type: typeQuery } }
         });
-        for (const t of ownedThemes) {
-          await tx.userCosmetic.update({
-            where: { id: t.id },
-            data: { equipped: false }
-          });
+        
+        for (const t of ownedItemsOfSlot) {
+          if (t.equipped) {
+            await tx.userCosmetic.update({
+              where: { id: t.id },
+              data: { equipped: false }
+            });
+          }
         }
       }
 
